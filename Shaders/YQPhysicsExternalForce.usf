@@ -1,0 +1,58 @@
+#include "/Engine/Private/Common.ush"
+#include "PhysicsParticleCommon.ush"
+
+
+#if SOLVE_EXTERNAL_FORCE
+Buffer<float4> InputPositionBuffer;
+
+RWBuffer<float4> OutputPositionBuffer;
+RWBuffer<half4> VelocityBuffer;
+Buffer<uint> MaskBuffer;
+
+float4 ExternalForceParams;
+
+float4 WindParams;
+
+uint NumParticles;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 ThreadId : SV_DispatchThreadID)
+{
+    if (ThreadId.x >= NumParticles)return;
+
+    uint Mask = MaskBuffer[ThreadId.x];
+    uint IsFixed = IsParticleFixed(Mask);
+
+    if (IsFixed == 0)
+    {
+        //float3 Normal = NormalBuffer[ThreadId.x].xyz;
+        float3 Velocity = VelocityBuffer[ThreadId.x].xyz;
+        float g = ExternalForceParams.x;
+        float DeltaTime = ExternalForceParams.y;
+
+
+        
+
+
+        //Velocity += abs(dot(WindParams.xyz, Normal)) * WindParams.xyz * WindParams.w * DeltaTime;
+
+        float3 Position = InputPositionBuffer[ThreadId.x].rgb;
+        OutputPositionBuffer[ThreadId.x] = float4(Position + Velocity * DeltaTime, 0.0);
+
+        Velocity *= 0.95;
+        Velocity.z -= g * DeltaTime;
+        
+        Velocity = clamp(Velocity, -MAX_SPEED_LIMIT, MAX_SPEED_LIMIT);
+
+
+        //OutputPositionBuffer[ThreadId.x] = float4(Position, 0.0);
+        VelocityBuffer[ThreadId.x] = half4(Velocity, 1.0);
+    }
+    else
+    {
+        OutputPositionBuffer[ThreadId.x] = InputPositionBuffer[ThreadId.x];
+        VelocityBuffer[ThreadId.x] = half4(0, 0, 0, 1.0);
+    }
+}
+
+#endif

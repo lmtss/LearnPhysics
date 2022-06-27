@@ -1,0 +1,92 @@
+
+// 后28位表示ID，前4位作他用
+#define BITMASK_PARTICLE_ID     0x0FFFFFFF
+#define BITMASK_PARTICLE_OTHER  0xF0000000
+#define BITMASK_PARTICLE_FIXED  0x10000000
+
+// 从包装的ID变量中得到真正的ID
+uint UnpackParticleID(uint PackedID)
+{
+    return PackedID & BITMASK_PARTICLE_ID;
+}
+
+// 判断粒子是否是固定的
+uint IsParticleFixed(uint PackedID)
+{
+    return (PackedID & BITMASK_PARTICLE_FIXED) == BITMASK_PARTICLE_FIXED;
+}
+
+// 将粒子设置为固定
+uint PackParticleToFixed(uint ID)
+{
+    return (ID | BITMASK_PARTICLE_FIXED);
+}
+
+int FloatToIntForAtomic(float Val)
+{
+    return Val * 1000000.0;
+}
+
+float IntToFloatForAtomic(int Val)
+{
+    float Ret = (float)Val;
+    return Ret * 0.000001;
+}
+
+// ----------
+#define MAX_SPEED_LIMIT 1000.0
+
+// ---------- BVH中，子节点ID的bitmask --------------
+#define BITMASK_BVH_CHILD_TYPE 0x80000000   // 是否是叶子节点
+#define BITMASK_BVH_CHILD_ID (~BITMASK_BVH_CHILD_TYPE)   // 是否是叶子节点
+
+// 将BVH的ID封装
+uint MarkLeafNodeToBVHID(uint NodeID)
+{
+    return (NodeID | BITMASK_BVH_CHILD_TYPE);
+}
+
+// 依据封装的BVH的ID，判断是不是叶子节点
+int IsBVHNodeLeaf(uint PackedID)
+{
+    return (PackedID & BITMASK_BVH_CHILD_TYPE) == BITMASK_BVH_CHILD_TYPE;
+}
+
+// 依据封装的BVH的ID，获得未封装的ID
+uint UnpackBVHNodeID(uint PackedID)
+{
+    return PackedID & BITMASK_BVH_CHILD_ID;
+}
+
+
+// SceneView
+struct FPhysicsSceneView 	
+{
+	// BVH根节点的ID
+	uint BVHRootID;
+
+	// 有多少个图元
+	uint NumPrimitives;
+
+	// PositionBuffer 中有多少有效粒子
+	// 每一tick会通过归约来计算，并更新这个值
+	uint NumParticles;
+
+	// ObjectEntryBuffer 中有多少个Object
+	// 可能不是有效的
+	uint NumObject;
+};
+
+
+
+// 获得当前场景中有多少个粒子
+uint GetOffsetNumParticles()
+{
+	return 2;
+}
+
+
+uint GetOffsetNumObjects()
+{
+    return 3;
+}

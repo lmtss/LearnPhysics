@@ -1,0 +1,202 @@
+#include "/Engine/Private/Common.ush"
+#include "PhysicsParticleCommon.ush"
+
+
+#if NAIVE_COLLISION_WITH_COLLIDER
+
+
+Buffer<float4> ParticlePositionBufferCopy;
+Buffer<float4> ParticlePositionBuffer;
+Buffer<half4> NormalBuffer;
+Buffer<uint> MaskBuffer;
+RWBuffer<float4> OutputPositionBuffer;
+RWBuffer<half4> VelocityBuffer;
+RWBuffer<half4> FeedbackBuffer;
+RWBuffer<uint> FeedbackSizesBuffer;
+float4 SphereCollisionParams;
+float4 SphereVelocityAndMass;
+float4 IterParams;
+uint NumParticles;
+float DeltaTime;
+
+groupshared uint GroupWriteOffsets[2 * THREAD_COUNT];
+
+groupshared uint GroupWriteStart;
+
+
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+    uint ParticleID = ThreadId.x;
+
+    uint bIsCollis = 0;
+    uint IsFixed = 1;
+    float3 ParticleOffset = 0;
+    float3 ParticlePosition = 0;
+    float3 NewParticleVelocity = 0;
+    float3 NewColliderVelocity = 0;
+
+    //float3 
+
+    if (ThreadId.x < NumParticles)
+    {
+        ParticlePosition = ParticlePositionBuffer[ParticleID].xyz;
+        half3 ParticleNormal = NormalBuffer[ParticleID].xyz;
+        half3 ParticleVelocity = VelocityBuffer[ParticleID].xyz;
+        float3 PredictPosition = ParticlePositionBufferCopy[ParticleID];
+
+        ParticleVelocity = (PredictPosition - ParticlePosition) / DeltaTime;
+
+        // 是否是固定
+        uint Mask = MaskBuffer[ParticleID];
+        IsFixed = IsParticleFixed(Mask);
+
+
+        // ------------------------  ----------------------
+        float SphereRadius = SphereCollisionParams.w;
+        float3 SphereCenter = SphereCollisionParams.xyz;
+        float3 CenterToPosition = PredictPosition - SphereCenter;
+        float DistSqr = dot(CenterToPosition, CenterToPosition);
+        
+        float3 SphereVelocity = SphereVelocityAndMass.xyz;
+        float SphereMass = SphereVelocityAndMass.w;
+
+        float3 ParticleOffset = 0;
+
+        NewParticleVelocity = ParticleVelocity;
+
+        float ModifyRadius = SphereRadius + 1;
+        //
+        if (DistSqr < ModifyRadius * ModifyRadius)
+        {
+            float Dist = sqrt(DistSqr);
+            float3 Dir = normalize(CenterToPosition);
+            ParticleOffset = Dir * (ModifyRadius - Dist);
+            bIsCollis = 1;
+
+            NewParticleVelocity = ParticleOffset / DeltaTime;// +ParticleVelocity;
+
+            float ParticlesMass = 1.0;
+            float Coeff = 0.5;
+            //NewColliderVelocity = (ParticlesMass * ParticleVelocity + SphereMass * SphereVelocity - ParticlesMass * NewParticleVelocity) / SphereMass;
+
+            NewColliderVelocity = -ParticleOffset;
+
+            float3 ParticleVelocityNormal = dot(-Dir, ParticleVelocity)* (-Dir);
+            float3 SphereVelocityNormal = dot(-Dir, SphereVelocity) * (-Dir);
+
+            /*float3 NewVelocityParticle = (
+                (Coeff + 1) * SphereMass * SphereVelocity
+                + (ParticlesMass - Coeff * SphereMass) * ParticleVelocity
+                ) / (SphereMass + ParticlesMass);
+
+            float3 NewVelocityCollider = (
+                (Coeff + 1) * ParticlesMass * ParticleVelocity
+                + (SphereMass - Coeff * ParticlesMass) * SphereVelocity
+                ) / (SphereMass + ParticlesMass);*/
+
+            float3 NewVelocityParticle = (
+                (Coeff + 1) * SphereMass * SphereVelocityNormal
+                + (ParticlesMass - Coeff * SphereMass) * ParticleVelocityNormal
+                ) / (SphereMass + ParticlesMass);
+
+            float3 NewVelocityCollider = (
+                (Coeff + 1) * ParticlesMass * ParticleVelocityNormal
+                + (SphereMass - Coeff * ParticlesMass) * SphereVelocityNormal
+                ) / (SphereMass + ParticlesMass);
+
+            //NewParticleVelocity = NewVelocityParticle;
+            //NewColliderVelocity = -ParticleOffset / DeltaTime;
+            NewColliderVelocity = NewVelocityCollider - SphereVelocityNormal;
+            //NewColliderVelocity = NewVelocityCollider;
+            
+
+            // 惩罚力, 防止速度很小时的穿插
+            /*float Distance = sqrt(DistSqr);
+            float DistanceNeedMove = SphereRadius - Distance;
+            float3 VelocityExtra = DistanceNeedMove * (-Dir) / DeltaTime;
+
+            NewColliderVelocity += VelocityExtra * 0.01;
+
+            NewParticleVelocity = -VelocityExtra + ParticleVelocity;
+            NewColliderVelocity = VelocityExtra * 0.0001;*/
+
+            //ParticleOffset = ParticleOffset * IterParams.x / IterParams.y;
+            ParticlePosition = PredictPosition;
+        }
+
+        //NewParticleVelocity += ParticleVelocity;
+
+        if (IsFixed == 1) bIsCollis = 0;
+    }
+
+    // ------------------------ 归约 ----------------------
+    uint Thread = GroupThreadId.x;
+    GroupWriteOffsets[Thread] = bIsCollis;
+    GroupMemoryBarrierWithGroupSync();
+
+    int OutBuffer = 0, InBuffer = 1;
+
+    [unroll]
+    for (uint Offset = 1; Offset < THREAD_COUNT; Offset = Offset << 1)
+    {
+
+        OutBuffer = 1 - OutBuffer;
+        InBuffer = 1 - InBuffer;
+        if (Thread >= Offset)
+        {
+            GroupWriteOffsets[OutBuffer * THREAD_COUNT + Thread] = GroupWriteOffsets[InBuffer * THREAD_COUNT + Thread - Offset] + GroupWriteOffsets[InBuffer * THREAD_COUNT + Thread];
+        }
+        else
+        {
+            GroupWriteOffsets[OutBuffer * THREAD_COUNT + Thread] = GroupWriteOffsets[InBuffer * THREAD_COUNT + Thread];
+        }
+
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (Thread == 0)
+    {
+        uint NumGroupFreeIDs = GroupWriteOffsets[(OutBuffer + 1) * THREAD_COUNT - 1];
+        InterlockedAdd(FeedbackSizesBuffer[0], NumGroupFreeIDs, GroupWriteStart);
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (bIsCollis)
+    {
+        uint WriteOffset = GroupWriteStart + GroupWriteOffsets[OutBuffer * THREAD_COUNT + Thread] - bIsCollis;
+        FeedbackBuffer[WriteOffset] = half4(NewColliderVelocity, 1.0);
+    }
+
+    if (IsFixed == 1 || bIsCollis == 0) return;
+
+
+
+    float3 Velocity = ParticleOffset / DeltaTime;
+    float3 NewPosition = ParticlePosition + ParticleOffset;
+    OutputPositionBuffer[ThreadId.x] = float4(NewPosition, 1.0);
+    VelocityBuffer[ThreadId.x] = float4(NewParticleVelocity, 1.0);
+}
+
+
+#endif
+
+
+#if COPY_POSITION_BUFFER
+
+
+Buffer<float4> PositionBuffer;
+RWBuffer<float4> OutputPositionBuffer;
+uint NumParticles;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+    if (ThreadId.x >= NumParticles)return;
+
+    OutputPositionBuffer[ThreadId.x] = PositionBuffer[ThreadId.x];
+}
+
+#endif

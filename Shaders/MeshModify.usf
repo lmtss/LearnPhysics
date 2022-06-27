@@ -1,0 +1,80 @@
+#include "/Engine/Private/Common.ush"
+#include "PhysicsParticleCommon.ush"
+
+#define NORMAL_TO_INT_SCALE 10000.0
+
+#if CALC_NORMAL_BY_CROSS_ATOMIC
+
+Buffer<float4> PositionBuffer;
+Buffer<uint> IndexBuffer;
+
+RWBuffer<int> AccumulateDeltaPositionXBuffer;
+RWBuffer<int> AccumulateDeltaPositionYBuffer;
+RWBuffer<int> AccumulateDeltaPositionZBuffer;
+
+uint NumTriangles;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+	if (ThreadId.x >= NumTriangles) return;
+
+	uint TriangleID = ThreadId.x;
+
+	uint VertexID0 = IndexBuffer[TriangleID * 3];
+	uint VertexID1 = IndexBuffer[TriangleID * 3 + 1];
+	uint VertexID2 = IndexBuffer[TriangleID * 3 + 2];
+
+	float3 Position0 = PositionBuffer[VertexID0].xyz;
+	float3 Position1 = PositionBuffer[VertexID1].xyz;
+	float3 Position2 = PositionBuffer[VertexID2].xyz;
+
+	float3 Normal = normalize(cross(Position1 - Position0, Position2 - Position0));
+
+	InterlockedAdd(AccumulateDeltaPositionXBuffer[VertexID0], FloatToIntForAtomic(Normal.x));
+	InterlockedAdd(AccumulateDeltaPositionYBuffer[VertexID0], FloatToIntForAtomic(Normal.y));
+	InterlockedAdd(AccumulateDeltaPositionZBuffer[VertexID0], FloatToIntForAtomic(Normal.z));
+
+	InterlockedAdd(AccumulateDeltaPositionXBuffer[VertexID1], FloatToIntForAtomic(Normal.x));
+	InterlockedAdd(AccumulateDeltaPositionYBuffer[VertexID1], FloatToIntForAtomic(Normal.y));
+	InterlockedAdd(AccumulateDeltaPositionZBuffer[VertexID1], FloatToIntForAtomic(Normal.z));
+
+	InterlockedAdd(AccumulateDeltaPositionXBuffer[VertexID2], FloatToIntForAtomic(Normal.x));
+	InterlockedAdd(AccumulateDeltaPositionYBuffer[VertexID2], FloatToIntForAtomic(Normal.y));
+	InterlockedAdd(AccumulateDeltaPositionZBuffer[VertexID2], FloatToIntForAtomic(Normal.z));
+}
+
+#endif
+
+#if RESOLVE_DELTA_NORMAL
+
+RWBuffer<float4> OutputNormalBuffer;
+
+RWBuffer<int> AccumulateDeltaPositionXBuffer;
+RWBuffer<int> AccumulateDeltaPositionYBuffer;
+RWBuffer<int> AccumulateDeltaPositionZBuffer;
+
+uint NumVertices;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+	if (ThreadId.x >= NumVertices) return;
+
+	uint VertexID = ThreadId.x;
+
+	float DeltaNormalX = IntToFloatForAtomic(AccumulateDeltaPositionXBuffer[VertexID]);
+	float DeltaNormalY = IntToFloatForAtomic(AccumulateDeltaPositionYBuffer[VertexID]);
+	float DeltaNormalZ = IntToFloatForAtomic(AccumulateDeltaPositionZBuffer[VertexID]);
+
+	float3 Normal = float3(DeltaNormalX, DeltaNormalY, DeltaNormalZ);
+	Normal = normalize(Normal);
+
+	OutputNormalBuffer[VertexID] = float4(Normal, 0.0);
+
+	AccumulateDeltaPositionXBuffer[VertexID] = 0;
+	AccumulateDeltaPositionYBuffer[VertexID] = 0;
+	AccumulateDeltaPositionZBuffer[VertexID] = 0;
+}
+
+#endif

@@ -1,0 +1,18 @@
+#include "/Engine/Private/Common.ush"
+
+
+Buffer<uint> KeyBuffer;
+RWBuffer<uint> OutputBuffer;
+
+#define THREAD_COUNT 32
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 ThreadId : SV_DispatchThreadID) 
+{
+    uint Key = KeyBuffer[ThreadId.x];
+    if(WaveIsFirstLane())
+    {
+
+        OutputBuffer[0] = 0;
+    }
+}

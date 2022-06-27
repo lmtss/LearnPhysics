@@ -1,0 +1,412 @@
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/VertexFactoryCommon.ush"
+
+#define VF_USE_PRIMITIVE_SCENE_DATA 0
+
+#define YQD 1
+
+#define DEBUG_POINT 0
+
+#ifndef NUM_MATERIAL_TEXCOORDS_VERTEX
+#define NUM_MATERIAL_TEXCOORDS_VERTEX 0
+#endif
+
+
+
+struct FPositionAndNormalOnlyVertexFactoryInput
+{
+	float4	Position	: ATTRIBUTE0;
+	float4 Normal : ATTRIBUTE1;
+	uint VertexId : SV_VertexID;
+};
+
+struct FPositionOnlyVertexFactoryInput
+{
+	float4	Position	: ATTRIBUTE0;
+	uint VertexId : SV_VertexID;
+};
+
+struct FVertexFactoryInterpolantsVSToPS
+{
+#if !DEBUG_POINT
+	TANGENTTOWORLD_INTERPOLATOR_BLOCK
+#endif
+
+#if NUM_MATERIAL_TEXCOORDS_VERTEX
+	float4 TexCoords : TEXCOORD0;
+#endif
+
+#if !DEBUG_POINT
+	//half3 Normal : COLOR0;
+#endif
+};
+
+#ifdef YQ_PHYSICS_CUSTOM_VS_IN_EDITOR
+#else
+
+struct FVertexFactoryInput
+{
+	uint VertexId : SV_VertexID;
+};
+
+struct FVertexFactoryIntermediates
+{
+	float3 Position;
+
+	float4 TexCoords;
+
+	half3 Normal;
+
+	uint ViewId;
+
+};
+
+
+
+uint GetVertexIndex(in FVertexFactoryInput Input)
+{
+	return Input.VertexId + YQPhysicsVF.YQPhysicsVertexOffset;
+}
+
+
+
+Buffer<float4> PositionBuffer;
+Buffer<half4> NormalBuffer;
+
+#endif
+
+void SetupVertex(uint VertexIndex, out float3 OutPosition)
+{
+	//
+	float3 RectVertex[6] = {
+		float3(0.0, 0.0, 0.0),
+		float3(0.0, 1.0, 0.0),
+		float3(1.0, 1.0, 0.0),
+		float3(0.0, 0.0, 0.0),
+		float3(1.0, 1.0, 0.0),
+		float3(1.0, 0.0, 0.0)
+	};
+	
+	float3 Position = PositionBuffer[VertexIndex / 6].rgb;
+
+	Position += RectVertex[VertexIndex % 6] * 5.0;
+
+	OutPosition = Position;
+}
+
+
+#ifdef YQ_PHYSICS_CUSTOM_VS_IN_EDITOR
+#else
+
+FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput Input)
+{
+	FVertexFactoryIntermediates Intermediates;
+	Intermediates = (FVertexFactoryIntermediates)0;
+
+	Intermediates.ViewId = 0;
+
+	uint VertexIndex = GetVertexIndex(Input);
+
+#if DEBUG_POINT
+
+	//��Ϊ�õ���PT_TriangleList������6������һ������
+	float3 RectVertex[6] = {
+		float3(0.0, 0.0, 0.0),
+		float3(0.0, 1.0, 0.0),
+		float3(1.0, 1.0, 0.0),
+		float3(0.0, 0.0, 0.0),
+		float3(1.0, 1.0, 0.0),
+		float3(1.0, 0.0, 0.0)
+	};
+	
+	ResolvedView.ViewUp;
+	ResolvedView.ViewRight;
+
+
+	float3 Position = PositionBuffer[VertexIndex / 6].rgb;
+	float3 Offset = RectVertex[VertexIndex % 6];
+	Position += (Offset.x * ResolvedView.ViewRight + Offset.y * ResolvedView.ViewUp) * 5.0;
+
+	Intermediates.Position = Position;
+
+	Intermediates.TexCoords.xy = Offset.xy;
+
+#else
+	
+	
+
+	uint IndexInRect = VertexIndex % 6;
+	uint RectIndex = VertexIndex / 6;
+	
+	uint Col = RectIndex % 31;
+	uint Row = RectIndex / 31;
+
+	uint BufferIndex = VertexIndex;
+
+	float3 Position = PositionBuffer[BufferIndex].xyz;
+	float3 Normal = NormalBuffer[BufferIndex].xyz;
+
+	Intermediates.Position = Position;
+	Intermediates.Normal = Normal;
+
+	const float Scale = 1.0 / 31.0;
+	const float2 RectUV[6] = {
+		float2(0.0, 0.0),
+		float2(1.0, 0.0),
+		float2(0.0, 1.0),
+		float2(1.0, 0.0),
+		float2(1.0, 1.0),
+		float2(0.0, 1.0)
+	};
+
+	float2 UV = RectUV[IndexInRect];
+	UV.x += Col;
+	UV.y += Row;
+	UV *= Scale;
+	
+	Intermediates.TexCoords.xy = UV;
+	
+#endif
+
+	//��Ϊ�õ���float4������ʼ���Ļ�����
+	Intermediates.TexCoords.zw = 0;
+
+	return Intermediates;
+}
+
+#endif
+
+float4 CalcWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
+{
+	//return float4(Intermediates.Position + ResolvedView.PreViewTranslation.xyz, 1.0);
+	return TransformLocalToTranslatedWorld(Intermediates.Position);
+}
+
+float4 VertexFactoryGetWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
+{
+	return CalcWorldPosition(Input, Intermediates);
+}
+
+float4 VertexFactoryGetPreviousWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
+{
+	return CalcWorldPosition(Input, Intermediates);
+}
+
+half3x3 VertexFactoryGetTangentToLocal( FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates )
+{
+#if !DEBUG_POINT
+	//return Intermediates.TangentToLocal;
+#else
+	//return (half3x3)0;
+#endif
+
+	return (half3x3)0;
+}
+
+FMaterialVertexParameters GetMaterialVertexParameters(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, float3 WorldPosition, half3x3 TangentToLocal)
+{
+	FMaterialVertexParameters Result = (FMaterialVertexParameters)0;
+	Result.WorldPosition = WorldPosition;
+	Result.VertexColor = 0;
+#if !DEBUG_POINT
+	//Result.TangentToWorld = Intermediates.TangentToWorld;
+	Result.TangentToWorld = 0;
+#else
+	Result.TangentToWorld = 0;
+#endif
+
+#if NUM_MATERIAL_TEXCOORDS_VERTEX
+	Result.TexCoords[0] = Intermediates.TexCoords.xy;
+#endif
+
+	Result.PrimitiveId = 0;
+
+	return Result;
+}
+
+FVertexFactoryInterpolantsVSToPS VertexFactoryGetInterpolantsVSToPS(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, FMaterialVertexParameters VertexParameters)
+{
+	FVertexFactoryInterpolantsVSToPS Interpolants;
+
+	Interpolants = (FVertexFactoryInterpolantsVSToPS)0;
+	
+#if NUM_MATERIAL_TEXCOORDS_VERTEX
+	Interpolants.TexCoords = Intermediates.TexCoords;
+#endif
+	
+#if !DEBUG_POINT
+	Interpolants.TangentToWorld2 = float4(Intermediates.Normal, 1.0);
+#endif
+
+
+	return Interpolants;
+}
+
+FMaterialPixelParameters GetMaterialPixelParameters(FVertexFactoryInterpolantsVSToPS Interpolants, float4 SvPosition)
+{
+	// GetMaterialPixelParameters is responsible for fully initializing the result
+	FMaterialPixelParameters Result = MakeInitializedMaterialPixelParameters();
+
+#if NUM_MATERIAL_TEXCOORDS_VERTEX
+	Result.TexCoords[0] = Interpolants.TexCoords.xy;
+#endif
+
+#if !DEBUG_POINT
+	//Result.WorldNormal = Interpolants.TangentToWorld2;
+	Result.TangentToWorld = half3x3(
+		half3(0.0, 0.0, 1.0),
+		half3(0.0, 0.0, 1.0),
+		Interpolants.TangentToWorld2.xyz
+	);
+#endif
+	
+	return Result;
+}
+
+float4 VertexFactoryGetRasterizedWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, float4 InWorldPosition)
+{
+	return InWorldPosition;
+}
+
+float3 VertexFactoryGetWorldNormal(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
+{
+#if !DEBUG_POINT
+	return Intermediates.Normal;
+	#else
+	return float3(0.0, 0.0, 1.0);
+	#endif
+}
+
+float3 VertexFactoryGetWorldNormal(FPositionAndNormalOnlyVertexFactoryInput Input)
+{
+	return float3(0.0, 0.0, 1.0);
+}
+
+
+float4 VertexFactoryGetWorldPosition(FPositionOnlyVertexFactoryInput Input)
+{
+	float3 Position;
+	SetupVertex(Input.VertexId, Position);
+	return TransformLocalToTranslatedWorld(Input.Position.xyz);
+}
+
+
+
+/** for depth-only pass (slope depth bias) */
+float4 VertexFactoryGetWorldPosition(FPositionAndNormalOnlyVertexFactoryInput Input)
+{
+	float3 Position;
+	SetupVertex(Input.VertexId, Position);
+	return TransformLocalToTranslatedWorld(Input.Position.xyz);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#if USING_TESSELLATION
+	struct FVertexFactoryInterpolantsVSToDS
+	{
+		FVertexFactoryInterpolantsVSToPS InterpolantsVSToPS;
+	};
+
+	float2 VertexFactoryGetTextureCoordinateDS( FVertexFactoryInterpolantsVSToDS Interpolants )
+	{
+		return float2(0,0);
+	}
+
+	FVertexFactoryInterpolantsVSToPS VertexFactoryAssignInterpolants(FVertexFactoryInterpolantsVSToDS Input)
+	{
+		return Input.InterpolantsVSToPS;
+	}
+
+	/** Converts from vertex factory specific interpolants to a FMaterialTessellationParameters, which is used by material inputs. */
+	FMaterialTessellationParameters GetMaterialTessellationParameters(FVertexFactoryInterpolantsVSToDS Interpolants, float3 CameraLocalWorldPosition)
+	{
+		FMaterialTessellationParameters	Result;
+		return Result;
+	}
+
+	FVertexFactoryInterpolantsVSToDS VertexFactoryGetInterpolantsVSToDS(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, FMaterialVertexParameters VertexParameters)
+	{
+		FVertexFactoryInterpolantsVSToDS Interpolants;
+		Interpolants.InterpolantsVSToPS = VertexFactoryGetInterpolantsVSToPS(Input, Intermediates, VertexParameters);
+		return Interpolants;
+	}
+
+	FVertexFactoryInterpolantsVSToDS VertexFactoryInterpolate(FVertexFactoryInterpolantsVSToDS a, float aInterp, FVertexFactoryInterpolantsVSToDS b, float bInterp)
+	{
+		FVertexFactoryInterpolantsVSToDS O = (FVertexFactoryInterpolantsVSToDS)0;
+
+		return O;
+	}
+
+	float3x3 VertexFactoryGetTangentToLocalDS(FVertexFactoryInterpolantsVSToDS Interpolants)
+	{
+		return (float3x3)0;
+	}
+#endif // #if USING_TESSELLATION
+
+#ifndef VF_IMPLEMENTED_GET_VIEW_INDEX
+#define VF_IMPLEMENTED_GET_VIEW_INDEX
+
+uint VertexFactoryGetViewIndex(FVertexFactoryIntermediates Intermediates)
+{
+	return 0;
+}
+
+uint VertexFactoryGetInstanceIdLoadIndex(FVertexFactoryIntermediates Intermediates)
+{
+	return 0;
+}
+
+FLWCMatrix VertexFactoryGetLocalToWorld(FVertexFactoryIntermediates Intermediates)
+{
+	return (FLWCMatrix)0;
+}
+
+FLWCInverseMatrix VertexFactoryGetWorldToLocal(FVertexFactoryIntermediates Intermediates)
+{
+	return (FLWCInverseMatrix)0;
+}
+
+#if POSITION_ONLY
+
+uint VertexFactoryGetViewIndex(FPositionOnlyVertexFactoryInput Input)
+{
+	return 0;
+}
+
+uint VertexFactoryGetViewIndex(FPositionAndNormalOnlyVertexFactoryInput Input)
+{
+	return 0;
+}
+
+uint VertexFactoryGetInstanceIdLoadIndex(FPositionOnlyVertexFactoryInput Input)
+{
+	return 0;
+}
+
+uint VertexFactoryGetInstanceIdLoadIndex(FPositionAndNormalOnlyVertexFactoryInput Input)
+{
+	return 0;
+}
+
+#else
+
+
+
+#endif // POSITION_ONLY
+
+#endif // VF_IMPLEMENTED_GET_VIEW_INDEX
+//#include "/Engine/Private/VertexFactoryDefaultInterface.ush"

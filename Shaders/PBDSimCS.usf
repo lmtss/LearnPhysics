@@ -1,0 +1,144 @@
+#include "/Engine/Private/Common.ush"
+#include "PhysicsParticleCommon.ush"
+
+#if INITIALIZE_DELTA_BUFFER
+RWBuffer<int> AccumulateDeltaPositionXBuffer;
+RWBuffer<int> AccumulateDeltaPositionYBuffer;
+RWBuffer<int> AccumulateDeltaPositionZBuffer;
+RWBuffer<uint> AccumulateCountBuffer;
+
+uint NumParticle;
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
+{
+    if(ThreadId.x >= NumParticle) return;
+
+    AccumulateDeltaPositionXBuffer[ThreadId.x] = 0;
+    AccumulateDeltaPositionYBuffer[ThreadId.x] = 0;
+    AccumulateDeltaPositionZBuffer[ThreadId.x] = 0;
+    AccumulateCountBuffer[ThreadId.x] = 0;
+}
+
+#endif
+
+#if DISTANCE_CONSTRAINT
+
+Buffer<uint> ParticleABuffer;
+Buffer<uint> ParticleBBuffer;
+Buffer<float> DistanceBuffer;
+Buffer<float4> ParticlePositionBuffer;
+RWBuffer<int> AccumulateDeltaPositionXBuffer;
+RWBuffer<int> AccumulateDeltaPositionYBuffer;
+RWBuffer<int> AccumulateDeltaPositionZBuffer;
+RWBuffer<uint> AccumulateCountBuffer;
+
+uint ConstraintOffset;
+uint NumConstraints;
+float DeltaTime;
+float InvIterCount;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
+{
+    if(ThreadId.x >= NumConstraints)return;
+
+    uint ConstraintID = ThreadId.x + ConstraintOffset;
+
+    uint PackedIDA = ParticleABuffer[ConstraintID];
+    uint PackedIDB = ParticleBBuffer[ConstraintID];
+    float StaticDistance = DistanceBuffer[ConstraintID];
+
+    // 默认只有粒子A有可能是固定的，因为如果AB都固定，就不需要这个约束了
+    uint IsParticleAFixed = IsParticleFixed(PackedIDA);
+    uint ParticleIDA = UnpackParticleID(PackedIDA);
+
+    // todo: 
+    uint IsParticleBFixed = IsParticleFixed(PackedIDB);
+    uint ParticleIDB = UnpackParticleID(PackedIDB);
+
+    float4 PositionA = ParticlePositionBuffer[ParticleIDA];
+    float4 PositionB = ParticlePositionBuffer[ParticleIDB];
+
+    float3 BToA = (PositionA - PositionB).xyz;
+    float Distance = dot(BToA, BToA);
+    Distance = sqrt(Distance);
+    float3 Dir = BToA / Distance;
+    float3 DeltaA = -0.5 * (Distance - StaticDistance) * Dir;// *InvIterCount;
+    float3 DeltaB = -DeltaA;
+
+    //DeltaA *= 0.00001;
+    //DeltaB *= 0.00001;
+
+    if (IsParticleBFixed == 0)
+    {
+        InterlockedAdd(AccumulateDeltaPositionXBuffer[ParticleIDB], FloatToIntForAtomic(DeltaB.x));
+        InterlockedAdd(AccumulateDeltaPositionYBuffer[ParticleIDB], FloatToIntForAtomic(DeltaB.y));
+        InterlockedAdd(AccumulateDeltaPositionZBuffer[ParticleIDB], FloatToIntForAtomic(DeltaB.z));
+
+        InterlockedAdd(AccumulateCountBuffer[ParticleIDB], 1);
+    }
+
+    
+
+    if(IsParticleAFixed == 0)
+    {
+        InterlockedAdd(AccumulateDeltaPositionXBuffer[ParticleIDA], FloatToIntForAtomic(DeltaA.x));
+        InterlockedAdd(AccumulateDeltaPositionYBuffer[ParticleIDA], FloatToIntForAtomic(DeltaA.y));
+        InterlockedAdd(AccumulateDeltaPositionZBuffer[ParticleIDA], FloatToIntForAtomic(DeltaA.z));
+
+        InterlockedAdd(AccumulateCountBuffer[ParticleIDA], 1);
+    }
+
+    
+}
+
+#endif
+
+#if RESOLVE_DELTA_POSITION_BUFFER
+RWBuffer<int> AccumulateDeltaPositionXBuffer;
+RWBuffer<int> AccumulateDeltaPositionYBuffer;
+RWBuffer<int> AccumulateDeltaPositionZBuffer;
+RWBuffer<uint> AccumulateCountBuffer;
+
+Buffer<float4> InParticlePositionBuffer;
+RWBuffer<float4> OutParticlePositionBuffer;
+
+RWBuffer<float4> VelocityBuffer;
+
+uint NumParticle;
+float DeltaTime;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
+{
+    if(ThreadId.x >= NumParticle) return;
+
+    uint ParticleID = ThreadId.x;
+
+    float DeltaPosX = IntToFloatForAtomic(AccumulateDeltaPositionXBuffer[ParticleID]);
+    float DeltaPosY = IntToFloatForAtomic(AccumulateDeltaPositionYBuffer[ParticleID]);
+    float DeltaPosZ = IntToFloatForAtomic(AccumulateDeltaPositionZBuffer[ParticleID]);
+    uint Count = AccumulateCountBuffer[ParticleID];
+
+    float3 DeltaPosition = float3(DeltaPosX, DeltaPosY, DeltaPosZ);
+
+    if(Count != 0)
+    {
+        float CountF = (float)Count;
+        DeltaPosition = DeltaPosition / CountF;
+    }
+    
+    float3 Velocity = DeltaPosition / DeltaTime;
+
+    Velocity = clamp(Velocity, -MAX_SPEED_LIMIT, MAX_SPEED_LIMIT);
+
+    VelocityBuffer[ParticleID] += float4(Velocity, 0.0);
+    OutParticlePositionBuffer[ParticleID] = InParticlePositionBuffer[ParticleID] + float4(DeltaPosition, 0.0);
+
+    AccumulateCountBuffer[ParticleID] = 0;
+    AccumulateDeltaPositionXBuffer[ParticleID] = 0;
+    AccumulateDeltaPositionYBuffer[ParticleID] = 0;
+    AccumulateDeltaPositionZBuffer[ParticleID] = 0;
+}
+
+#endif

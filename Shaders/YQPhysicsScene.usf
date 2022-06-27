@@ -1,0 +1,199 @@
+#include "/Engine/Private/Common.ush"
+#include "PhysicsParticleCommon.ush"
+
+#if COMPILE_APPEND_STATIC_TRIANGLE
+
+Buffer<float> InputVertexBuffer;
+Buffer<uint> InputIndexBuffer;
+
+RWBuffer<float4> OutputVertexBuffer;
+RWBuffer<uint> OutputIndexBuffer;
+
+
+Buffer<half4> InputColorBuffer;
+RWBuffer<uint> OutputMaskBuffer;
+
+uint NumTriangles;
+uint NumVertices;
+
+RWBuffer<uint> PhysicsSceneViewBuffer;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
+{
+	uint TriangleID = ThreadId.x;
+	uint VertexID = ThreadId.x;
+
+
+	if (ThreadId.x < NumTriangles)
+	{
+		OutputIndexBuffer[TriangleID * 3] = InputIndexBuffer[TriangleID * 3];
+		OutputIndexBuffer[TriangleID * 3 + 1] = InputIndexBuffer[TriangleID * 3 + 1];
+		OutputIndexBuffer[TriangleID * 3 + 2] = InputIndexBuffer[TriangleID * 3 + 2];
+	}
+
+	if (ThreadId.x < NumVertices) 
+	{
+		float X = InputVertexBuffer[VertexID * 3];
+		float Y = InputVertexBuffer[VertexID * 3 + 1];
+		float Z = InputVertexBuffer[VertexID * 3 + 2];
+
+		OutputVertexBuffer[VertexID] = float4(X, Y, Z, 0.0);
+
+		uint Mask = 0;
+
+#if USE_FIXED_BY_COLOR
+		half ColorR = InputColorBuffer[VertexID].r;
+		OutputMaskBuffer[VertexID] = ColorR > 0.8 ? PackParticleToFixed(Mask) : Mask;
+#endif
+
+	}
+
+	if (ThreadId.x == 0) 
+	{
+		PhysicsSceneViewBuffer[1] = NumTriangles;
+	}
+
+}
+#endif
+
+#if COMPILE_INITIALIZE_OBJECT_ENTRY
+
+RWBuffer<uint> ObjectEntryOffsetBuffer;
+RWBuffer<uint> ObjectEntryCountBuffer;
+RWBuffer<uint> ObjectEntryBitmaskBuffer;
+RWBuffer<uint> ObjectEntryOffsetForRenderBuffer;
+
+uint BufferLength;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+	uint ThreadID = ThreadId.x;
+
+	if (ThreadID < BufferLength)
+	{
+		ObjectEntryOffsetBuffer[ThreadID] = 0;
+		ObjectEntryCountBuffer[ThreadID] = 0;
+		ObjectEntryBitmaskBuffer[ThreadID] = 0;
+		ObjectEntryOffsetForRenderBuffer[ThreadID] = 0;
+	}
+
+}
+#endif
+
+#if COMPILE_CLEAR_BUFFER
+
+RWBuffer<uint> OutBuffer;
+
+uint BufferLength;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+	uint ThreadID = ThreadId.x;
+
+	if (ThreadID < BufferLength)
+	{
+		OutBuffer[ThreadID] = 0;
+	}
+
+}
+
+#endif
+
+#if COMPILE_ADD_OBJECT_TO_BUFFER
+
+Buffer<uint> InPhysicsSceneViewBuffer;
+Buffer<uint> ObjectEntryArgBuffer;
+RWBuffer<uint> ObjectEntryOffsetBuffer;
+RWBuffer<uint> ObjectEntryCountBuffer;
+RWBuffer<uint> OutPhysicsSceneViewBuffer;
+
+uint NumObjects;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+	uint ThreadID = ThreadId.x;
+
+	if (ThreadID < NumObjects)
+	{
+		uint OffsetNumObjects = GetOffsetNumObjects();
+		uint NumObjectsInScene = InPhysicsSceneViewBuffer[OffsetNumObjects];
+
+		uint Offset = ObjectEntryArgBuffer[ThreadID * 2];
+		uint Count = ObjectEntryArgBuffer[ThreadID * 2 + 1];
+		
+		uint WriteOffset = NumObjectsInScene + ThreadID;
+		ObjectEntryOffsetBuffer[WriteOffset] = Offset;
+		ObjectEntryCountBuffer[WriteOffset] = Count;
+		
+		if (ThreadID == 0)
+		{
+			OutPhysicsSceneViewBuffer[OffsetNumObjects] = NumObjectsInScene + NumObjects;
+		}
+	}
+}
+
+#endif
+
+#if COMPILE_APPEND_PARTICLES_TO_SCENE
+
+Buffer<uint> InPhysicsSceneViewBuffer;
+Buffer<float> InputVertexBuffer;
+RWBuffer<float4> OutputVertexBuffer;
+uint NumParticles;
+
+Buffer<half4> InputColorBuffer;
+RWBuffer<uint> OutputMaskBuffer;
+
+RWBuffer<uint> OutPhysicsSceneViewBuffer;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+	uint ParticlesID = ThreadId.x;
+	uint OffsetNumParticles = GetOffsetNumParticles();
+	uint NumParticlesInScene = InPhysicsSceneViewBuffer[OffsetNumParticles];
+
+	if (ParticlesID < NumParticles)
+	{
+		float X = InputVertexBuffer[ParticlesID * 3];
+		float Y = InputVertexBuffer[ParticlesID * 3 + 1];
+		float Z = InputVertexBuffer[ParticlesID * 3 + 2];
+
+		OutputVertexBuffer[NumParticlesInScene + ParticlesID] = float4(X, Y, Z, 0.0);
+
+		uint Mask = 0;
+#if USE_FIXED_BY_COLOR
+		half ColorR = InputColorBuffer[ParticlesID].r;
+		OutputMaskBuffer[ParticlesID] = ColorR > 0.8 ? PackParticleToFixed(Mask) : Mask;
+#endif
+	}
+
+	if (ThreadId.x == 0)
+	{
+		OutPhysicsSceneViewBuffer[OffsetNumParticles] = NumParticlesInScene + NumParticles;
+	}
+
+}
+
+#endif
+
+
+#if COMPILE_COPY_DATA_TO_CPU_BUFFER
+Buffer<uint> PhysicsSceneViewBuffer;
+RWBuffer<uint> PerFrameToCPUBuffer;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+	if (ThreadId.x == 0)
+	{
+		uint NumParticles = PhysicsSceneViewBuffer[GetOffsetNumParticles()];
+		PerFrameToCPUBuffer[0] = NumParticles;
+	}
+
+}
+#endif

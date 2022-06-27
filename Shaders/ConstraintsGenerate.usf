@@ -1,0 +1,257 @@
+#include "/Engine/Private/Common.ush"
+#include "PhysicsParticleCommon.ush"
+
+Buffer<uint> UIntParamBuffer;
+Buffer<float> FloatParamBuffer;
+
+#if DISTANCE_CONSTRAINT
+
+RWBuffer<uint> IDBufferA;
+RWBuffer<uint> IDBufferB;
+RWBuffer<float> DistanceBuffer;
+
+uint ConstraintOffset;
+uint NumConstraints;
+
+[numthreads(32, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+    uint ConstraintID = ThreadId.x;
+
+    if(ConstraintID >= NumConstraints) return;
+    
+    uint ParticleAID = UIntParamBuffer[ConstraintID * 2];
+    uint ParticleBID = UIntParamBuffer[ConstraintID * 2 + 1];
+    float Distance = FloatParamBuffer[ConstraintID];
+
+    uint OutputConstraintID = ConstraintID + ConstraintOffset;
+    IDBufferA[OutputConstraintID] = ParticleAID;
+    IDBufferB[OutputConstraintID] = ParticleBID;
+    DistanceBuffer[OutputConstraintID] = Distance;
+}
+
+#endif
+
+#if SIMPLE_COLLISION_CONSTRAINT
+
+
+
+#endif
+
+
+#if GENERATE_DISTANTCE_CONSTRAINTS_KEY
+
+Buffer<uint> IndexBuffer;
+RWBuffer<uint> ConstraintKeyBuffer;
+
+uint NumTriangles;
+
+// 约定vertexID较小的在高位
+uint MakeKeyByUint16(uint IndexA, uint IndexB)
+{
+    if (IndexA > IndexB)
+    {
+        uint Temp = IndexB;
+        IndexB = IndexA;
+        IndexA = Temp;
+    }
+
+    return (IndexA << 16) | IndexB;
+}
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+    uint TriangleID = ThreadId.x;
+
+    if (TriangleID >= NumTriangles) return;
+
+    uint VertexA = IndexBuffer[TriangleID * 3];
+    uint VertexB = IndexBuffer[TriangleID * 3 + 1];
+    uint VertexC = IndexBuffer[TriangleID * 3 + 2];
+
+    ConstraintKeyBuffer[TriangleID * 3] = MakeKeyByUint16(VertexA, VertexB);
+    ConstraintKeyBuffer[TriangleID * 3 + 1] = MakeKeyByUint16(VertexA, VertexC);
+    ConstraintKeyBuffer[TriangleID * 3 + 2] = MakeKeyByUint16(VertexB, VertexC);
+}
+
+#endif
+
+// 参考tensorflow
+// https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/unique_op_gpu.cu.h
+#if COMPACT_SORTED_KEY
+Buffer<uint> SortedKeyBuffer;
+
+RWBuffer<uint> UniqueKeyBuffer;
+
+RWBuffer<uint> GlobalOffsetBuffer;
+
+uint GlobalOffsetIndex;
+uint NumKeys;
+
+//groupshared uint InputKey[THREAD_COUNT + 1];
+groupshared uint GroupWriteOffsets[2 * THREAD_COUNT];
+
+groupshared uint GroupWriteStart;
+
+uint IsKeyActive(uint KeyID)
+{
+	if (KeyID == 0)
+	{
+		return 1;
+	}
+
+	// 判断是不是连续相同key的边缘
+	return SortedKeyBuffer[KeyID] != SortedKeyBuffer[KeyID - 1];
+}
+
+#define COUNTER_PER_THREAD 4
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	uint InputStart = GroupId.x * THREAD_COUNT;
+	uint Thread = GroupThreadId.x;
+	uint KeyID = (InputStart + Thread) * COUNTER_PER_THREAD;
+
+	int OutBuffer = 0, InBuffer = 1;
+
+	uint IsActiveArray[COUNTER_PER_THREAD];
+	uint KeyArray[COUNTER_PER_THREAD + 1];	// 数个key 加上左边的一个key
+	uint NumActiveInThread = 0;
+
+	[unroll]
+	for (uint i = 0; i < COUNTER_PER_THREAD; i++)
+	{
+		KeyArray[i + 1] = SortedKeyBuffer[KeyID + i];
+	}
+
+	// KeyArray的第一个元素可能指向buffer中索引为-1的地方
+	// 如果是id为0的key，那么随意取一个和右边的key不同的数即可
+	if (KeyID == 0)
+		KeyArray[0] = KeyArray[1] + 1;
+	else
+		KeyArray[0] = SortedKeyBuffer[KeyID - 1];
+
+
+	[unroll]
+	for (uint j = 0; j < COUNTER_PER_THREAD; j++)
+	{
+		uint GlobalKeyID = KeyID + j;
+		uint bIsActive = KeyArray[j + 1] != KeyArray[j];
+		
+		if (GlobalKeyID >= NumKeys)
+		{
+			bIsActive = 0;
+		}
+
+		IsActiveArray[j] = bIsActive;
+		NumActiveInThread += bIsActive;
+	}
+
+	GroupWriteOffsets[Thread] = NumActiveInThread;
+
+	GroupMemoryBarrierWithGroupSync();
+
+	[unroll]
+	for (uint Offset = 1; Offset < THREAD_COUNT; Offset = Offset << 1)
+	{
+
+		OutBuffer = 1 - OutBuffer;
+		InBuffer = 1 - InBuffer;
+		if (Thread >= Offset)
+		{
+			GroupWriteOffsets[OutBuffer * THREAD_COUNT + Thread] = GroupWriteOffsets[InBuffer * THREAD_COUNT + Thread - Offset] + GroupWriteOffsets[InBuffer * THREAD_COUNT + Thread];
+		}
+		else
+		{
+			GroupWriteOffsets[OutBuffer * THREAD_COUNT + Thread] = GroupWriteOffsets[InBuffer * THREAD_COUNT + Thread];
+		}
+
+		GroupMemoryBarrierWithGroupSync();
+	}
+
+	if (Thread == 0)
+	{
+		uint NumGroupActiveIDs = GroupWriteOffsets[(OutBuffer + 1) * THREAD_COUNT - 1];
+		InterlockedAdd(GlobalOffsetBuffer[GlobalOffsetIndex], NumGroupActiveIDs, GroupWriteStart);
+	}
+
+	GroupMemoryBarrierWithGroupSync();
+
+	uint WriteOffset = GroupWriteStart + GroupWriteOffsets[OutBuffer * THREAD_COUNT + Thread] - NumActiveInThread;
+	uint OffsetInThread = 0;
+
+	[unroll]
+	for (uint k = 0; k < COUNTER_PER_THREAD; k++)
+	{
+		uint bIsActive = IsActiveArray[k];
+
+		if (bIsActive)
+		{
+			UniqueKeyBuffer[WriteOffset + OffsetInThread] = KeyArray[k + 1];
+			OffsetInThread++;
+		}
+
+	}
+}
+#endif
+
+
+#if GENERATE_DISTANCE_CONSTRAINT_BY_COMPACT_KEY
+
+// 约定vertexID较小的在高位
+void DecodeCombinedKey(uint CombinedKey, inout uint IndexA, inout uint IndexB)
+{
+	IndexA = CombinedKey & 0xFFFF0000;
+	IndexA = IndexA >> 16;
+
+	IndexB = CombinedKey & 0x0000FFFF;
+}
+
+Buffer<uint> CompactKeyBuffer;
+Buffer<float> PositionBuffer;
+Buffer<half4> ColorBuffer;
+RWBuffer<float> DistanceBuffer;
+RWBuffer<uint> IDBufferA;
+RWBuffer<uint> IDBufferB;
+uint NumConstraints;
+uint OffsetConstraints;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	uint ThreadID = DispatchThreadId.x;
+
+	if (ThreadID >= NumConstraints)return;
+
+	uint IndexA, IndexB;
+	DecodeCombinedKey(CompactKeyBuffer[ThreadID], IndexA, IndexB);
+
+	uint WriteOffset = OffsetConstraints + ThreadID;
+	
+	uint PackedIndexA = IndexA;
+	if (ColorBuffer[IndexA].r > 0.8)
+	{
+		PackedIndexA = PackParticleToFixed(IndexA);
+	}
+
+	uint PackedIndexB = IndexB;
+	if (ColorBuffer[IndexB].r > 0.8)
+	{
+		PackedIndexB = PackParticleToFixed(IndexB);
+	}
+	
+	IDBufferA[WriteOffset] = PackedIndexA;
+	IDBufferB[WriteOffset] = PackedIndexB;
+
+
+
+	float3 PositionA = float3(PositionBuffer[IndexA * 3], PositionBuffer[IndexA * 3 + 1], PositionBuffer[IndexA * 3 + 2]);
+	float3 PositionB = float3(PositionBuffer[IndexB * 3], PositionBuffer[IndexB * 3 + 1], PositionBuffer[IndexB * 3 + 2]);
+	float StaticDistance = distance(PositionA, PositionB);
+
+	DistanceBuffer[WriteOffset] = StaticDistance;
+}
+
+#endif

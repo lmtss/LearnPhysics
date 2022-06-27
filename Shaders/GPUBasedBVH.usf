@@ -1,0 +1,877 @@
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/MortonCode.ush"
+#include "PhysicsParticleCommon.ush"
+
+#define MAX_FLOAT_COORD (1.#INF)
+#define MIN_FLOAT_COORD (-1.#INF)
+
+// 需要保证 Val在[0, 1023]内
+uint MortonFromFloat3(int3 Val)
+{
+    uint Morton;
+    Morton = MortonCode3(Val.x);
+    Morton |= MortonCode3(Val.y) << 1;
+    Morton |= MortonCode3(Val.z) << 2;
+
+    return Morton;
+}
+
+#if COMPILE_SIMPLE_BV
+
+
+Buffer<float4> ParticlePositionBuffer;
+Buffer<uint> TriangleIndexBuffer;
+RWBuffer<uint> MortonCodeBuffer;
+RWBuffer<float4> BVHPositionBuffer0;
+RWBuffer<float2> BVHPositionBuffer1;
+
+float3 Center;
+float3 Extent;
+uint Length;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
+{
+    uint TriangleID = ThreadId.x;
+
+    if(TriangleID >= Length) return;
+
+    uint VertexID0 = TriangleIndexBuffer[TriangleID * 3];
+    uint VertexID1 = TriangleIndexBuffer[TriangleID * 3 + 1];
+    uint VertexID2 = TriangleIndexBuffer[TriangleID * 3 + 2];
+
+    float3 Position0 = ParticlePositionBuffer[VertexID0];
+    float3 Position1 = ParticlePositionBuffer[VertexID1];
+    float3 Position2 = ParticlePositionBuffer[VertexID2];
+
+    float3 MinPosition = float3(MAX_FLOAT_COORD, MAX_FLOAT_COORD, MAX_FLOAT_COORD);
+    float3 MaxPosition = float3(MIN_FLOAT_COORD, MIN_FLOAT_COORD, MIN_FLOAT_COORD);
+
+    MinPosition = min(min(Position0, Position1), Position2);
+    MaxPosition = max(max(Position0, Position1), Position2);
+
+    BVHPositionBuffer0[TriangleID] = float4(MinPosition, MaxPosition.z);
+    BVHPositionBuffer1[TriangleID] = MaxPosition.xy;
+
+    float3 Position = (MinPosition + MaxPosition) * 0.5;
+    float3 RelativePosition = Position - Center;
+    
+    float3 LocalPos = RelativePosition / Extent;    // (-1, 1)
+    LocalPos = LocalPos * 0.5 + 0.5;                      // (0.0, 1.0)
+    LocalPos = clamp(LocalPos - 0.00001, 0.0, 1.0);
+    LocalPos = LocalPos * 1024;
+
+    int3 DiscretePosition = (int3)LocalPos;
+
+    MortonCodeBuffer[TriangleID] = MortonFromFloat3(DiscretePosition);
+}
+
+#endif
+
+
+
+#if COMPILE_CLEAR_VALUE_BUFFER_FOR_SORT
+
+RWBuffer<uint> ValueBufferForSort;
+
+uint Length;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
+{
+    uint Index = ThreadId.x;
+    if(Index >= Length) return;
+
+    ValueBufferForSort[Index] = Index;
+}
+
+#endif
+
+
+#if COMPILE_TRANSFER_BV_BUFFER
+
+uint FindSamePrefixLength(uint Key0, uint key1) 
+{
+    uint BitString = ~(Key0 ^ key1);
+    uint BitMask = 2147483648;
+    uint Count = 0;
+
+    for (int i = 0; i < 32; i++) 
+    {
+        if (BitString & BitMask == BitMask)
+        {
+            Count++;
+            BitMask >>= 1;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    return Count;
+}
+
+uint FindSamePrefixLength2(uint Key0, uint Key1) {
+
+    uint BitMask = 2147483648;
+    uint Count = 0;
+
+    for (int i = 0; i < 32; i++) {
+        if ((Key0 & BitMask) == (Key1 & BitMask))
+        {
+            Count++;
+            BitMask /= 2;
+        }
+        else 
+        {
+            break;
+        }
+    }
+
+    return Count;
+}
+
+Buffer<uint> SortedIndexBuffer;
+Buffer<uint> MortonCodeBuffer;
+Buffer<float4> BVHPositionBuffer0;
+Buffer<float2> BVHPositionBuffer1;
+RWBuffer<float4> TransferBuffer0;
+RWBuffer<float2> TransferBuffer1;
+
+RWBuffer<uint> KeyDeltaBuffer;
+
+uint Length;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
+{
+    uint Index = ThreadId.x;
+    if(Index >= Length) return;
+
+    uint SortedIndex = SortedIndexBuffer[Index];
+
+    // 移动BV
+    TransferBuffer0[SortedIndex] = BVHPositionBuffer0[Index];
+    TransferBuffer1[SortedIndex] = BVHPositionBuffer1[Index];
+
+    // 计算delta
+    if (Index >= Length - 1) return;
+    /*uint MortonCode = MortonCodeBuffer[Index] + Index;
+    uint NextMortonCode = MortonCodeBuffer[Index + 1] + Index + 1;*/
+
+    uint MortonCode = MortonCodeBuffer[Index];
+    uint NextMortonCode = MortonCodeBuffer[Index + 1];
+
+    uint Delta = 0;
+
+    if (MortonCode != NextMortonCode) 
+    {
+        Delta = FindSamePrefixLength2(MortonCode, NextMortonCode);
+    }
+    // 当莫顿码相同时，计算两个Index的delta
+    else 
+    {
+        Delta = FindSamePrefixLength2(Index, Index + 1) + 31;
+    }
+
+    //Delta = FindSamePrefixLength2(MortonCode, NextMortonCode);
+
+    KeyDeltaBuffer[Index] = Delta;
+
+}
+
+#endif
+
+
+#if COMPILE_FSA_GENERATE_BVH_TREE
+
+Buffer<uint> KeyDeltaBuffer;
+RWBuffer<uint> AtomicAccessCountBuffer;
+
+RWBuffer<uint> InternalNodeRangeBuffer;
+
+Buffer<float4> LeafBVBuffer0;
+Buffer<float2> LeafBVBuffer1;
+
+RWBuffer<float4> InternalNodeBVBuffer0;
+RWBuffer<float2> InternalNodeBVBuffer1;
+
+RWBuffer<uint> BVHChildIDBuffer;
+
+RWBuffer<uint> PhysicsSceneViewBuffer;
+
+uint Length;
+
+#define COMPILE_BVH 1
+#define USE_BARRIER 1
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
+{
+    uint ThreadIndex = ThreadId.x;
+    if(ThreadIndex >= Length) return;
+    
+    // [a, b]
+    uint NodeRangeLeft = ThreadIndex;
+    uint NodeRangeRight = ThreadIndex;
+
+    uint CurrentNode = ThreadIndex;
+#if COMPILE_BVH
+    float4 Val0 = LeafBVBuffer0[CurrentNode];
+    float2 Val1 = LeafBVBuffer1[CurrentNode];
+
+    float3 BVMinPosition = Val0.xyz;
+    float3 BVMaxPosition = float3(Val1.x, Val1.y, Val0.w);
+#endif
+    uint Parent = -1;
+    uint LimitIter = 0;
+
+    [loop]
+    while (!(NodeRangeLeft == 0 && NodeRangeRight == (Length - 1)))
+    {
+        LimitIter++;
+        /*if (LimitIter > 20) {
+            return;
+        }*/
+        
+        // todo: 不使用if else，而是数据填充padding
+        // 判断父节点
+        if (NodeRangeLeft == 0) 
+        {
+            Parent = NodeRangeRight;
+        }
+        else if (NodeRangeRight == (Length - 1)) 
+        {
+            Parent = NodeRangeLeft - 1;
+        }
+        else 
+        {
+            uint DeltaLeft = KeyDeltaBuffer[CurrentNode - 1];
+            uint DeltaRight = KeyDeltaBuffer[CurrentNode];
+
+            Parent = DeltaLeft > DeltaRight ? (NodeRangeLeft - 1) : NodeRangeRight;
+        }
+
+   
+
+        // 写入Range
+        uint Range = Parent < CurrentNode ? NodeRangeRight : NodeRangeLeft;
+        uint OffsetWriteToParent = (Parent < CurrentNode ? 1 : 0);
+        //InternalNodeRangeBuffer[Parent * 2 + OffsetWriteToParent] = (Parent < CurrentNode ? NodeRangeRight : NodeRangeLeft);
+        InterlockedCompareStore(InternalNodeRangeBuffer[Parent * 2 + OffsetWriteToParent], 0xFFFFFFFF, Range);
+        //标记当前节点是叶子节点还是内节点
+        uint ChildID = CurrentNode;
+        if (LimitIter == 1) 
+        {
+            ChildID |= BITMASK_BVH_CHILD_TYPE;
+        }
+#if COMPILE_BVH
+        BVHChildIDBuffer[Parent * 2 + OffsetWriteToParent] = ChildID;
+#endif
+
+
+#if USE_BARRIER
+        // 先写入所有内容，后使用Barrier
+        DeviceMemoryBarrier();
+#endif
+        // 获知当前线程是第几个访问父节点的
+        uint ParentAccessCount = 0;
+        InterlockedAdd(AtomicAccessCountBuffer[Parent], 1, ParentAccessCount);
+
+        // 若是第一个线程，则退出
+        if (ParentAccessCount == 0) 
+        {
+#if COMPILE_BVH
+            InternalNodeBVBuffer0[Parent] = float4(BVMinPosition, BVMaxPosition.z);
+            InternalNodeBVBuffer1[Parent] = BVMaxPosition.xy;
+#endif
+            
+            //InternalNodeRangeBuffer[Parent * 2] = Range;
+            //uint TempOri;
+            //InterlockedCompareExchange(InternalNodeRangeBuffer[Parent * 2], 0xFFFFFFFF, Range, TempOri);
+            break;
+        }
+
+        // 同步Range
+        uint ValFromOtherThread = 0xFFFFFFFF;
+#if USE_BARRIER
+        ValFromOtherThread = InternalNodeRangeBuffer[Parent * 2 + 1 - OffsetWriteToParent];
+#else
+        uint IterForSync = 0;
+        [loop]
+        while (true) 
+        {
+            InterlockedCompareExchange(InternalNodeRangeBuffer[Parent * 2 + 1 - OffsetWriteToParent], 0xFFFFFFFF, 0xFFFFFFFF, ValFromOtherThread);
+            if (ValFromOtherThread != 0xFFFFFFFF) 
+            {
+                break;
+            }
+        }
+#endif
+        if (Parent < CurrentNode) 
+        {
+            NodeRangeLeft = ValFromOtherThread;
+        }
+        else 
+        {
+            NodeRangeRight = ValFromOtherThread;
+        }
+
+        CurrentNode = Parent;
+#if COMPILE_BVH
+        // 另一个线程写入的值
+        [loop]
+        while (true)
+        {
+            float2 BVTemp = InternalNodeBVBuffer1[CurrentNode];
+            if (BVTemp.x > MIN_FLOAT_COORD)
+            {
+                break;
+            }
+        }
+
+        [loop]
+        while (true) {
+            float4 BVTemp = InternalNodeBVBuffer0[CurrentNode];
+            if (BVTemp.w > MIN_FLOAT_COORD) {
+                break;
+            }
+        }
+
+        Val0 = InternalNodeBVBuffer0[CurrentNode];
+        Val1 = InternalNodeBVBuffer1[CurrentNode];
+
+        BVMinPosition = min(BVMinPosition, Val0.xyz);
+        BVMaxPosition = max(BVMaxPosition, float3(Val1.x, Val1.y, Val0.w));
+
+        InternalNodeBVBuffer0[CurrentNode] = float4(BVMinPosition, BVMaxPosition.z);
+        InternalNodeBVBuffer1[CurrentNode] = BVMaxPosition.xy;
+#endif
+    }
+
+
+    //InterlockedMax(AtomicAccessCountBuffer[2000], LimitIter);
+    if (NodeRangeLeft == 0 && NodeRangeRight == (Length - 1))         
+    {
+        PhysicsSceneViewBuffer[0] = CurrentNode;
+    }
+}
+
+#endif
+
+
+#if COMPILE_CLEAR_ATOMIC_ACCESS_BUFFER
+RWBuffer<uint> AtomicAccessBuffer;
+RWBuffer<uint> InternalNodeRangeBuffer;
+RWBuffer<float4> InternalNodeBVBuffer0;
+RWBuffer<float2> InternalNodeBVBuffer1;
+
+uint Length;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) {
+    uint Index = ThreadId.x;
+    if (Index >= Length) return;
+
+    AtomicAccessBuffer[Index] = 0;
+    InternalNodeRangeBuffer[Index * 2] = 0xFFFFFFFF;
+    InternalNodeRangeBuffer[Index * 2 + 1] = 0xFFFFFFFF;
+    InternalNodeBVBuffer0[Index] = float4(MAX_FLOAT_COORD, MAX_FLOAT_COORD, MAX_FLOAT_COORD, MIN_FLOAT_COORD);
+    InternalNodeBVBuffer1[Index] = float2(MIN_FLOAT_COORD, MIN_FLOAT_COORD);
+}
+#endif
+
+
+#if COMPILE_GENERATE_RADIX_TREE_0
+
+
+
+Buffer<uint> MortonCodeBuffer;
+RWBuffer<uint> BVHChildIDBuffer;
+RWBuffer<uint> BVHParentIDBuffer;
+uint NumInternalNodes;
+uint LengthHalfParentIDBuffer;
+
+uint ComputeCommonPrefixLengthInternal(uint Key0, uint Key1)
+{
+#if 1
+    uint BitMask = 2147483648;
+    uint Count = 0;
+
+    for (int i = 0; i < 32; i++) {
+        if ((Key0 & BitMask) == (Key1 & BitMask)) {
+            Count++;
+            BitMask /= 2;
+        }
+        else {
+            break;
+        }
+    }
+
+    return Count;
+#else
+    return firstbitlow(reversebits(Key0 ^ Key1));
+#endif
+}
+
+int ComputeCommonPrefixLength2(uint Key0, uint Index0, int Index1) 
+{
+    // 注意此处的范围检查是检查叶子节点的范围，而不是内节点的范围
+    if (Index1 < 0 || Index1 > NumInternalNodes)return -1;
+
+    uint Key1 = MortonCodeBuffer[Index1];
+
+    uint Ext = 0;
+    if (Key0 == Key1) {
+        Ext = 32;
+        Key0 = Index0;
+        Key1 = Index1;
+    }
+
+    //return firstbithigh(Key0 ^ Key1) + Ext;
+    return ComputeCommonPrefixLengthInternal(Key0, Key1) + Ext;
+}
+
+// 可能分裂点在InternalNodeID，也就是说RangeDirection方向所以点都是 > DeltaRange
+int BinartSearch(int MortonCode, int InternalNodeID, int RangeDirection, int OtherBoundID, int DeltaRange)
+{
+    int Middle = InternalNodeID;
+    int SearchDirection = RangeDirection;
+    int BoundInDirI = InternalNodeID, BoundInDirJ = OtherBoundID;
+
+    int Length = abs(OtherBoundID - InternalNodeID);
+
+    int Ext = 1;
+
+    for (int Stride = (Length - 1 + 1) / 2; Stride > 0;) {
+        Middle = Middle + Stride * SearchDirection;
+        int CommonPrefixLength = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, Middle);
+
+        if (CommonPrefixLength > DeltaRange) // 向RangeDirection方向移动
+        {
+            SearchDirection = RangeDirection;
+            Stride = abs(Middle - BoundInDirJ) / 2;
+            BoundInDirI = Middle;
+        }
+        else // 向当前内节点方向移动
+        {
+            Ext = 0;
+
+            SearchDirection = -RangeDirection;
+            Stride = abs(Middle - BoundInDirI) / 2;
+            BoundInDirJ = Middle;
+        }
+    }
+    
+    return Ext == 0 ? Middle : InternalNodeID;
+}
+
+
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
+{
+    int InternalNodeID = ThreadId.x;
+    if (InternalNodeID >= NumInternalNodes)return;
+
+    uint MortonCode = MortonCodeBuffer[InternalNodeID];
+
+    //BVHChildIDBuffer[InternalNodeID] = ComputeCommonPrefixLength(MortonCode, MortonCodeBuffer[InternalNodeID + 1], InternalNodeID, InternalNodeID + 1);
+    int RightDelta = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, InternalNodeID + 1);
+    int LeftDelta = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, InternalNodeID - 1);
+
+    // 决定Range方向，+1 或 -1
+    int RangeDirection = sign(RightDelta - LeftDelta);
+
+    int MinDelta = min(LeftDelta, RightDelta);
+
+    // 使用指数步进粗略查找子节点范围
+    int BoundLength = 2;
+
+    int OtherNodeID = InternalNodeID + BoundLength * RangeDirection;
+
+    while (
+        ComputeCommonPrefixLength2(MortonCode, InternalNodeID, OtherNodeID) > MinDelta// && OtherNodeID < NumInternalNodes + 1 && OtherNodeID >= 0
+    ) 
+    {
+        BoundLength *= 2;
+        OtherNodeID = InternalNodeID + BoundLength * RangeDirection;
+    }
+
+
+    // 二叉搜索找到精确的子节点范围
+    // 一个问题是，之前粗略找出的边界ID可能正好是准确的
+#if 1
+    int Ext = 0;
+    int Length = 0;
+    for (int Offset = BoundLength / 2; Offset > 0; Offset /= 2)
+    {
+        int CompareNodeID = InternalNodeID + (Length + Offset) * RangeDirection;
+        int CommonPrefixLength = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, CompareNodeID);
+
+        if (CommonPrefixLength > MinDelta) 
+        {
+            Length = Length + Offset;
+        }
+        else {
+            Ext = 1;
+        }
+
+    }
+
+    uint BoundNodeID = (Ext == 1) ? (InternalNodeID + Length * RangeDirection) : (InternalNodeID + Length * RangeDirection + RangeDirection);
+    BoundNodeID = InternalNodeID + Length * RangeDirection;
+#else
+    // int BinartSearch(int MortonCode, int InternalNodeID, int RangeDirection, int OtherBoundID, int DeltaRange)
+    uint BoundNodeID = BinartSearch(MortonCode, InternalNodeID, RangeDirection, OtherNodeID + RangeDirection, MinDelta);
+    int Length = abs(BoundNodeID - InternalNodeID);
+#endif
+
+    // 找到分裂点
+    int DeltaRange = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, BoundNodeID);
+#if 0
+    int SplitPoint = 0;
+    for (int Offset = (Length + 1) / 2; Offset > 1; Offset = (Offset + 1) / 2) {
+        int CompareNodeID = InternalNodeID + (SplitPoint + Offset) * RangeDirection;
+        int CommonPrefixLength = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, CompareNodeID);
+
+        if (CommonPrefixLength > DeltaRange) {
+            SplitPoint = SplitPoint + Offset;
+        }
+    }
+
+    uint SplitPointNodeID = InternalNodeID + SplitPoint * RangeDirection + min(RangeDirection, 0);
+#elif 1
+    int Result = BoundNodeID;
+    for (int NodeID = BoundNodeID; (NodeID - InternalNodeID) * RangeDirection >= 0; NodeID -= RangeDirection) 
+    {
+        int CommonPrefixLength = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, NodeID);
+        if (CommonPrefixLength < DeltaRange) 
+        {
+            Result = NodeID;
+        }
+        else if (CommonPrefixLength > DeltaRange) { break; }
+    }
+
+    int SplitPointNodeID = RangeDirection == -1 ? Result : (Result - 1);
+
+#else
+    //int Middle = InternalNodeID;
+    //int SearchDirection = RangeDirection;
+    //int BoundInDirI = InternalNodeID, BoundInDirJ = BoundNodeID;
+    //for (int Stride = (Length - 1 + 1) / 2; Stride > 0;)
+    //{
+    //    Middle = Middle + Stride * SearchDirection;
+    //    int CommonPrefixLength = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, Middle);
+
+    //    if (CommonPrefixLength > DeltaRange) // 向RangeDirection方向移动
+    //    {
+    //        SearchDirection = RangeDirection;
+    //        Stride = abs(Middle - BoundInDirJ) / 2;
+    //        BoundInDirI = Middle;
+    //    }
+    //    else // 向当前内节点方向移动
+    //    {
+    //        SearchDirection = -RangeDirection;
+    //        Stride = abs(Middle - BoundInDirI) / 2;
+    //        BoundInDirJ = Middle;
+    //    }
+    //}
+
+    //uint SplitPointNodeID = Middle + min(RangeDirection, 0);
+    int SplitPointNodeID = BinartSearch(MortonCode, InternalNodeID, RangeDirection, BoundNodeID, DeltaRange) + min(RangeDirection, 0);
+#endif
+
+
+
+
+    // 根据分裂位置得到左右子节点的ID，要判断是否是叶子节点
+    uint ParentBufferIndex = 0;
+    uint LeftChildID, RightChildID;
+    if (min(InternalNodeID, BoundNodeID) == SplitPointNodeID) 
+    {
+        // 叶子节点
+        LeftChildID = SplitPointNodeID;
+        ParentBufferIndex = LeftChildID + LengthHalfParentIDBuffer;
+        LeftChildID |= BITMASK_BVH_CHILD_TYPE;
+    }
+    else
+    {
+        LeftChildID = SplitPointNodeID;
+        ParentBufferIndex = LeftChildID;
+    }
+
+    BVHParentIDBuffer[ParentBufferIndex] = InternalNodeID;
+
+    if (max(InternalNodeID, BoundNodeID) == (SplitPointNodeID + 1))
+    {
+        // 叶子节点
+        RightChildID = SplitPointNodeID + 1;
+        ParentBufferIndex = RightChildID + LengthHalfParentIDBuffer;
+        RightChildID |= BITMASK_BVH_CHILD_TYPE;
+    }
+    else 
+    {
+        RightChildID = SplitPointNodeID + 1;
+        ParentBufferIndex = RightChildID;
+    }
+
+    BVHParentIDBuffer[ParentBufferIndex] = InternalNodeID;
+
+    BVHChildIDBuffer[InternalNodeID * 2] = LeftChildID;
+    BVHChildIDBuffer[InternalNodeID * 2 + 1] = RightChildID;
+
+}
+#endif
+
+
+#if COMPILE_GENERATE_RADIX_TREE
+
+
+
+Buffer<uint> MortonCodeBuffer;
+RWBuffer<uint> BVHChildIDBuffer;
+RWBuffer<uint> BVHParentIDBuffer;
+uint NumInternalNodes;
+uint LengthHalfParentIDBuffer;
+
+uint ComputeCommonPrefixLengthInternal(uint Key0, uint Key1) {
+#if 0
+    uint BitMask = 2147483648;
+    uint Count = 0;
+
+    for (int i = 0; i < 32; i++) {
+        if ((Key0 & BitMask) == (Key1 & BitMask)) {
+            Count++;
+            BitMask /= 2;
+        }
+        else {
+            break;
+        }
+    }
+
+    return Count;
+#else
+    return firstbitlow(reversebits(Key0 ^ Key1));
+#endif
+}
+
+int ComputeCommonPrefixLength2(uint Key0, uint Index0, int Index1) {
+    // 注意此处的范围检查是检查叶子节点的范围，而不是内节点的范围
+    if (Index1 < 0 || Index1 > NumInternalNodes)return -1;
+
+    uint Key1 = MortonCodeBuffer[Index1];
+
+    uint Ext = 0;
+    if (Key0 == Key1) {
+        Ext = 32;
+        Key0 = Index0;
+        Key1 = Index1;
+    }
+
+    //return firstbithigh(Key0 ^ Key1) + Ext;
+    return ComputeCommonPrefixLengthInternal(Key0, Key1) + Ext;
+}
+
+int find_split(int num_leaves, int first, int last) 
+{
+    const uint first_code = MortonCodeBuffer[first];
+#if 0
+    const uint last_code = MortonCodeBuffer[last];
+    if (first_code == last_code) {
+        return (first + last) >> 1;
+    }
+    const int delta_node = ComputeCommonPrefixLengthInternal(first_code, last_code);
+#else
+    const int delta_node = ComputeCommonPrefixLength2(first_code, first, last);
+#endif
+
+    // binary search...
+    int split = first;
+    int stride = last - first;
+    do {
+        stride = (stride + 1) >> 1;
+        const int middle = split + stride;
+        if (middle < last) {
+            const int delta = ComputeCommonPrefixLength2(first_code, first, middle);
+            if (delta > delta_node) {
+                split = middle;
+            }
+        }
+    } while (stride > 1);
+
+    return split;
+}
+
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) {
+    int InternalNodeID = ThreadId.x;
+    if (InternalNodeID >= NumInternalNodes)return;
+
+    uint MortonCode = MortonCodeBuffer[InternalNodeID];
+
+    int NumLeaves = NumInternalNodes + 1;
+
+    //BVHChildIDBuffer[InternalNodeID] = ComputeCommonPrefixLength(MortonCode, MortonCodeBuffer[InternalNodeID + 1], InternalNodeID, InternalNodeID + 1);
+    int Rightdelta = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, InternalNodeID + 1);
+    int Leftdelta = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, InternalNodeID - 1);
+
+    // 决定Range方向，+1 或 -1
+    int RangeDirection = sign(Rightdelta - Leftdelta);
+    
+    int MinDelta = min(Rightdelta, Leftdelta);
+    
+    // 使用指数步进粗略查找子节点范围
+    int LengthMax = 2;
+    {
+        int OtherNodeID = InternalNodeID + LengthMax * RangeDirection;
+        while (
+            ComputeCommonPrefixLength2(MortonCode, InternalNodeID, OtherNodeID) > MinDelta// && OtherNodeID < NumInternalNodes + 1 && OtherNodeID >= 0
+            ) {
+            LengthMax *= 2;
+            OtherNodeID = InternalNodeID + LengthMax * RangeDirection;
+        }
+    }
+
+    // 二叉搜索精确查找子节点范围
+    // 一个问题是，之前的粗略的可能正好就是答案
+    int Length = 0;
+    {
+        for (int Step = LengthMax >> 1; Step > 0; Step >>= 1) 
+        {
+            int BoundNodeID = InternalNodeID + (Length + Step) * RangeDirection;
+            int CommonPrefixLength = ComputeCommonPrefixLength2(MortonCode, InternalNodeID, BoundNodeID);
+            if (CommonPrefixLength > MinDelta) 
+            {
+                Length += Step;
+            }
+        }
+
+    }
+
+    int BoundNodeID = InternalNodeID + Length * RangeDirection;
+
+    int2 ij = int2(InternalNodeID, BoundNodeID);
+    if (RangeDirection < 0) 
+    {
+        ij = int2(BoundNodeID, InternalNodeID);
+    }
+
+    // ----------------- 找分裂点 ------------------
+    int SplitNodeID = find_split(NumLeaves, ij.x, ij.y);
+
+    // -----------------
+    int LeftChildIndexInParentBuffer = SplitNodeID, RightChildIndexInParentBuffer = SplitNodeID + 1;
+    int LeftChildID = SplitNodeID, RightChildID = SplitNodeID + 1;
+
+    if (min(ij.x, ij.y) == SplitNodeID) // 叶子节点
+    {
+        LeftChildIndexInParentBuffer += NumLeaves;
+        LeftChildID |= BITMASK_BVH_CHILD_TYPE;
+    }
+
+    if (max(ij.x, ij.y) == SplitNodeID + 1)
+    {
+        RightChildIndexInParentBuffer += NumLeaves;
+        RightChildID |= BITMASK_BVH_CHILD_TYPE;
+    }
+
+    BVHChildIDBuffer[InternalNodeID * 2] = LeftChildID;
+    BVHChildIDBuffer[InternalNodeID * 2 + 1] = RightChildID;
+    BVHParentIDBuffer[LeftChildIndexInParentBuffer] = InternalNodeID;
+    BVHParentIDBuffer[RightChildIndexInParentBuffer] = InternalNodeID;
+}
+#endif
+
+
+#if COMPILE_GENERATE_BVH_BY_TREE
+
+
+RWBuffer<uint> AtomicAccessCountBuffer;
+
+Buffer<float4> LeafBVBuffer0;
+Buffer<float2> LeafBVBuffer1;
+
+RWBuffer<float4> InternalNodeBVBuffer0;
+RWBuffer<float2> InternalNodeBVBuffer1;
+
+Buffer<uint> BVHParentIDBuffer;
+Buffer<uint> BVHChildIDBuffer;
+
+uint NumLeafNodes;
+uint LeafNodeParentOffset;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
+{
+    uint LeafNodeID = ThreadId.x;
+    if (LeafNodeID >= NumLeafNodes) return;
+
+    uint ParentID = BVHParentIDBuffer[LeafNodeID + LeafNodeParentOffset];
+    int InternalNodeID = -1;
+
+    while (InternalNodeID != 0) 
+    {
+        // 获知当前线程是第几个访问父节点的
+        uint ParentAccessCount = 0;
+        InterlockedAdd(AtomicAccessCountBuffer[ParentID], 1, ParentAccessCount);
+
+        // 如果是第一个访问的线程，退出
+        if (ParentAccessCount == 0)return;
+
+        // 第二个访问的线程，继续向上合并
+        // 同时也代表两个节点的写入操作同步了
+        InternalNodeID = ParentID;
+
+        // 获得封装的ID
+        uint PackedLeftChildID = BVHChildIDBuffer[InternalNodeID * 2];
+        uint PackedRightChildID = BVHChildIDBuffer[InternalNodeID * 2 + 1];
+
+        // 
+        uint LeftChildID = UnpackBVHNodeID(PackedLeftChildID);
+        uint RightChildID = UnpackBVHNodeID(PackedRightChildID);
+
+        float4 LeftChildVal0;
+        float2 LeftChildVal1;
+        if (IsBVHNodeLeaf(PackedLeftChildID)) 
+        {
+            LeftChildVal0 = LeafBVBuffer0[LeftChildID];
+            LeftChildVal1 = LeafBVBuffer1[LeftChildID];
+        }
+        else 
+        {
+            LeftChildVal0 = InternalNodeBVBuffer0[LeftChildID];
+            LeftChildVal1 = InternalNodeBVBuffer1[LeftChildID];
+        }
+
+        float4 RightChildVal0;
+        float2 RightChildVal1;
+        if (IsBVHNodeLeaf(PackedRightChildID)) {
+            RightChildVal0 = LeafBVBuffer0[RightChildID];
+            RightChildVal1 = LeafBVBuffer1[RightChildID];
+        }
+        else {
+            RightChildVal0 = InternalNodeBVBuffer0[RightChildID];
+            RightChildVal1 = InternalNodeBVBuffer1[RightChildID];
+        }
+
+        float3 BVMinPosition = min(LeftChildVal0.xyz, RightChildVal0.xyz);
+        float3 BVMaxPosition = max(float3(LeftChildVal1.x, LeftChildVal1.y, LeftChildVal0.w), float3(RightChildVal1.x, RightChildVal1.y, RightChildVal0.w));
+
+        float4 ParentVal0 = float4(BVMinPosition, BVMaxPosition.z);
+        float2 ParentVal1 = BVMaxPosition.xy;
+
+        InternalNodeBVBuffer0[InternalNodeID] = ParentVal0;
+        InternalNodeBVBuffer1[InternalNodeID] = ParentVal1;
+
+        DeviceMemoryBarrier();
+
+        ParentID = BVHParentIDBuffer[InternalNodeID];
+    }
+
+    
+}
+
+#endif

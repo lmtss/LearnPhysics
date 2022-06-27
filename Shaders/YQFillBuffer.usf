@@ -1,0 +1,36 @@
+#include "/Engine/Private/Common.ush"
+
+#if FILL_UINT_BUFFER
+
+RWBuffer<uint> OutputBuffer;
+
+uint Value;
+uint Length;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, uint3 DispatchThreadId : SV_DispatchThreadID) 
+{
+	if (DispatchThreadId.x < Length) 
+	{
+		OutputBuffer[DispatchThreadId.x] = 0;
+	}
+}
+
+#endif
+
+#if RANDOM_FILL_INT_BUFFER
+
+float random(float2 p) { return frac(cos(dot(p, float2(23.14069263277926, 2.665144142690225))) * 12345.6789); }
+
+RWBuffer<uint> OutputBuffer;
+
+uint Length;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, uint3 DispatchThreadId : SV_DispatchThreadID) {
+	if (DispatchThreadId.x < Length) {
+		float RandomRes = random(float2(DispatchThreadId.x, DispatchThreadId.x));
+		OutputBuffer[DispatchThreadId.x] = RandomRes > 0.5 ? 1 : -1;
+	}
+}
+#endif
