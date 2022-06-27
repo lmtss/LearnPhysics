@@ -1,13 +1,11 @@
 # 基于PBD的模拟的练习
-在UE上练习物理模拟，尽可能不修改引擎，在插件中做全部，仍在施工中。     
+在UE上练习用GPU做物理模拟，尽可能不修改引擎，在插件中做全部，仍在施工中。     
 # 模拟器类
 使用了UE提供的WorldSubSystem实现了两个生命周期托管到引擎的单例类，PhyscisScene
 和PhysicsSimulator，每一次tick时，PhyscisScene首先会整理各种Object的数据，遍历待加入到GPU场景的物体的列表，通过计算着色器将物体的数据写入到各种buffer中，比如位置buffer，同时根据需求产生约束。   
-# SceneComponent
-场景中用自定义的PrimitiveComponent来显示模拟的物体，自定义vertexfactory来fetch模拟出的顶点位置和法线，这可能带来大量的shader编译 (也是我开发时的困扰点，这很浪费时间)。   
 
 # 布料
-当前使用StaticMesh来生成布料粒子和约束，顶点色的R通道用来标定哪些是固定点。   
+当前使用StaticMesh来生成布料粒子和约束，顶点色的R通道用来标定哪些是固定点。顶点色可以用引擎自带的工具来刷。     
 
 ![基于网格生成布料](Img/ClothMeshVertexColorSample-0.png)  
 
@@ -28,6 +26,20 @@
 
 当然使用顶点色并不是最好的方式，理论上物理的数据应该和渲染的数据分开，不过这需要些时间来读UE当前布料资产的代码。  
 
+# SceneComponent
+有了网格体资源之后，场景中用自定义的PrimitiveComponent来显示模拟的物体，自定义vertexfactory来fetch模拟出的顶点位置和法线，这可能带来大量的shader编译 (也是我开发时的困扰点，这很浪费时间)。   
+
+新建一个actor，然后在组件下面添加我自定义的MeshComponent
+![BeginPlay](Img/MeshComponent.png)    
+
+随后在detail面板中设置材质和网格体  
+![BeginPlay](Img/MeshComponent-1.png)    
+
+这里的材质并非什么都行，因为我用的是自定义的顶点工厂，可以在材质中自定义部分顶点着色器的行为。  
+下图中，我使用custom节点让shaderinclude了我写的ush文件，这样就让这个ush文件中的代码起效，进而读取位置buffer  
+![BeginPlay](Img/CustomVertexShader.png)    
+
+不过现在有bug，有时候没有重新创建渲染状态，导致组件消失不见。这个问题还需要研究一下。
 # 约束
 距离约束统一保存在三个buffer当中，静态距离buffer、粒子A的ID的buffer、粒子B的ID的buffer。每次迭代都用计算着色器计算某一种约束，并将位置的变化量累积到buffer当中。  
 这里的问题是，一个粒子可能被多个约束引用，所以写入时会有同步问题。这个问题暂时没研究透彻，现在是将变化量转为整形，然后用原子操作进行累加。    

@@ -48,12 +48,6 @@ FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput In
 
 	uint VertexIndex = GetVertexIndex(Input);
 
-	uint IndexInRect = VertexIndex % 6;
-	uint RectIndex = VertexIndex / 6;
-	
-	uint Col = RectIndex % 31;
-	uint Row = RectIndex / 31;
-
 	uint BufferIndex = VertexIndex;
 
 	float3 Position = PositionBuffer[BufferIndex].xyz;
