@@ -67,4 +67,15 @@ FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput In
 	return Intermediates;
 }
 
+float4 CalcWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
+{
+	//return float4(Intermediates.Position + ResolvedView.PreViewTranslation.xyz, 1.0);
+
+
+	FLWCVector3 WorldPosition = LWCPromote(Intermediates.Position);
+	FLWCVector3 TranslatedWorldPosition = LWCAdd(WorldPosition, ResolvedView.PreViewTranslation);
+	return float4(LWCToFloat(TranslatedWorldPosition), 1.0f);
+	//return float4(Intermediates.Position, 1.0);
+}
+
 #endif

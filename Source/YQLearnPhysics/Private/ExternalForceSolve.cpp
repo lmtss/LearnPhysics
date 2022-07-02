@@ -82,3 +82,72 @@ void UpdateExternalForce(
 	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
 	UnsetShaderUAVs(RHICmdList, ComputeShader, ComputeShader.GetComputeShader());
 }
+
+
+class FYQUpdateFixedParticlesTransformCS : public FGlobalShader
+{
+public:
+	DECLARE_SHADER_TYPE(FYQUpdateFixedParticlesTransformCS, Global);
+	SHADER_USE_PARAMETER_STRUCT(FYQUpdateFixedParticlesTransformCS, FGlobalShader);
+
+	static constexpr uint32 ThreadGroupSize = 32;
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_SRV(Buffer<uint>, MaskBuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<float4>, PositionBuffer)
+		SHADER_PARAMETER(FMatrix44f, PreviousWorldToLocal)
+		SHADER_PARAMETER(FMatrix44f, NewLocalToWorld)
+		SHADER_PARAMETER(uint32, NumParticles)
+		SHADER_PARAMETER(uint32, BaseParticle)
+		END_SHADER_PARAMETER_STRUCT()
+
+public:
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::ES3_1);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("UPDATE_FIXED_PARTICLES_TRANSFORM"), 1);
+		OutEnvironment.SetDefine(TEXT("THREAD_COUNT"), ThreadGroupSize);
+		OutEnvironment.CompilerFlags.Add(CFLAG_AllowTypedUAVLoads);
+	}
+
+};
+
+IMPLEMENT_SHADER_TYPE(, FYQUpdateFixedParticlesTransformCS, TEXT("/YQLearnPhysics/YQPhysicsExternalForce.usf"), TEXT("MainCS"), SF_Compute);
+
+
+void UpdateFixedParticlesTransform(
+	FRHICommandList& RHICmdList
+	, FUnorderedAccessViewRHIRef PositionBuffer
+	, FShaderResourceViewRHIRef MaskBuffer
+	, FMatrix44f PreviousWorldToLocal
+	, FMatrix44f NewLocalToWorld
+	, uint32 NumParticles
+	, uint32 BaseParticle
+)
+{
+	check(IsInRenderingThread());
+
+	SCOPED_DRAW_EVENT(RHICmdList, UpdateFixedParticlesTransform);
+
+	TShaderMapRef<FYQUpdateFixedParticlesTransformCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	RHICmdList.SetComputeShader(ComputeShader.GetComputeShader());
+
+	const uint32 NumThreadGroups = FMath::DivideAndRoundUp(NumParticles, FYQUpdateFixedParticlesTransformCS::ThreadGroupSize);
+
+	FYQUpdateFixedParticlesTransformCS::FParameters PassParameters;
+	PassParameters.PositionBuffer = PositionBuffer;
+	PassParameters.MaskBuffer = MaskBuffer;
+	PassParameters.BaseParticle = BaseParticle;
+	PassParameters.NumParticles = NumParticles;
+	PassParameters.PreviousWorldToLocal = PreviousWorldToLocal;
+	PassParameters.NewLocalToWorld = NewLocalToWorld;
+
+	SetShaderParameters(RHICmdList, ComputeShader, ComputeShader.GetComputeShader(), PassParameters);
+	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
+	UnsetShaderUAVs(RHICmdList, ComputeShader, ComputeShader.GetComputeShader());
+}

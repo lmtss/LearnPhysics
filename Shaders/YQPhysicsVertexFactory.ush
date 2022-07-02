@@ -107,34 +107,6 @@ FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput In
 
 	uint VertexIndex = GetVertexIndex(Input);
 
-#if DEBUG_POINT
-
-	//��Ϊ�õ���PT_TriangleList������6������һ������
-	float3 RectVertex[6] = {
-		float3(0.0, 0.0, 0.0),
-		float3(0.0, 1.0, 0.0),
-		float3(1.0, 1.0, 0.0),
-		float3(0.0, 0.0, 0.0),
-		float3(1.0, 1.0, 0.0),
-		float3(1.0, 0.0, 0.0)
-	};
-	
-	ResolvedView.ViewUp;
-	ResolvedView.ViewRight;
-
-
-	float3 Position = PositionBuffer[VertexIndex / 6].rgb;
-	float3 Offset = RectVertex[VertexIndex % 6];
-	Position += (Offset.x * ResolvedView.ViewRight + Offset.y * ResolvedView.ViewUp) * 5.0;
-
-	Intermediates.Position = Position;
-
-	Intermediates.TexCoords.xy = Offset.xy;
-
-#else
-	
-	
-
 	uint IndexInRect = VertexIndex % 6;
 	uint RectIndex = VertexIndex / 6;
 	
@@ -165,22 +137,22 @@ FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput In
 	UV *= Scale;
 	
 	Intermediates.TexCoords.xy = UV;
-	
-#endif
 
-	//��Ϊ�õ���float4������ʼ���Ļ�����
+
 	Intermediates.TexCoords.zw = 0;
 
 	return Intermediates;
 }
 
-#endif
+
 
 float4 CalcWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
 {
 	//return float4(Intermediates.Position + ResolvedView.PreViewTranslation.xyz, 1.0);
 	return TransformLocalToTranslatedWorld(Intermediates.Position);
 }
+
+#endif
 
 float4 VertexFactoryGetWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
 {

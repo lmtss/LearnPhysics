@@ -11,6 +11,9 @@
 
 ![基于网格生成布料](Img/ClothMeshVertexColorSample-1.png)  
 
+当然使用顶点色并不是最好的方式，理论上物理的数据应该和渲染的数据分开，不过这需要些时间来读UE当前布料资产的代码。  
+## 距离约束
+
 约束是使用IndexBuffer生成的，计算着色器的每个线程读取IndexBuffer中的3个值，然后生成3个距离约束。  
 这样会有重复的约束生成，因为一个边可能被两个三角形共享。所以我做了一个GPU上的去重操作，大概就是结合排序和求前缀和   
 
@@ -24,12 +27,12 @@
 
 也是参考了[tensorflow的做法](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/unique_op_gpu.cu.h)。  
 
-当然使用顶点色并不是最好的方式，理论上物理的数据应该和渲染的数据分开，不过这需要些时间来读UE当前布料资产的代码。  
 
 # SceneComponent
 有了网格体资源之后，场景中用自定义的PrimitiveComponent来显示模拟的物体，自定义vertexfactory来fetch模拟出的顶点位置和法线，这可能带来大量的shader编译 (也是我开发时的困扰点，这很浪费时间)。   
 
-新建一个actor，然后在组件下面添加我自定义的MeshComponent
+新建一个`YQPhysicsMeshActor`，这会自动创建一个我自定义的`PrimitiveComponent`  
+
 ![BeginPlay](Img/MeshComponent.png)    
 
 随后在detail面板中设置材质和网格体  
@@ -40,7 +43,7 @@
 ![BeginPlay](Img/CustomVertexShader.png)    
 
 不过现在有bug，有时候没有重新创建渲染状态，导致组件消失不见。这个问题还需要研究一下。
-# 约束
+# 计算约束
 距离约束统一保存在三个buffer当中，静态距离buffer、粒子A的ID的buffer、粒子B的ID的buffer。每次迭代都用计算着色器计算某一种约束，并将位置的变化量累积到buffer当中。  
 这里的问题是，一个粒子可能被多个约束引用，所以写入时会有同步问题。这个问题暂时没研究透彻，现在是将变化量转为整形，然后用原子操作进行累加。    
 另一种想到的方式是，我们可以在添加物体时，计算出每个约束对buffer的输出位置，这样可以在输出时，将同一个粒子的变化量输出到连续的空间，下一步用计算着色器做累加。  
@@ -61,6 +64,15 @@
 ```cpp
 TMap<FCPUObjectProxy*, FUpdateCPUObjectTransformCommand> UpdatedCPUObjectTransformsRenderThread;
 ```
+
+如果想要在预览窗口起效果，可以将`BeginPlay`相关逻辑移到`Construction Script`当中。
+
+![Construction](Img/CPUObject-Construction.png)    
+
+不过要记得将蓝图中的`Run Construction Script on Drag`取消，不然在拖拽时会不断创建物理代理。   
+
+![Construction](Img/CPUObject-Drag.png)    
+
 
 # 碰撞
 碰撞还没做好，现在并没有真正的生成碰撞约束流，而是在其他约束计算之后，在一次dispatch中计算碰撞检测和反馈。  

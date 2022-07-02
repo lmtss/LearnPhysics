@@ -145,6 +145,8 @@ Buffer<float> InputVertexBuffer;
 RWBuffer<float4> OutputVertexBuffer;
 uint NumParticles;
 
+float4x4 LocalToWorld;
+
 Buffer<half4> InputColorBuffer;
 RWBuffer<uint> OutputMaskBuffer;
 
@@ -163,7 +165,11 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
 		float Y = InputVertexBuffer[ParticlesID * 3 + 1];
 		float Z = InputVertexBuffer[ParticlesID * 3 + 2];
 
-		OutputVertexBuffer[NumParticlesInScene + ParticlesID] = float4(X, Y, Z, 0.0);
+		float4 LocalPosition = float4(X, Y, Z, 1.0);
+		float4 WorldPosition = mul(LocalPosition, LocalToWorld);
+
+
+		OutputVertexBuffer[NumParticlesInScene + ParticlesID] = WorldPosition;
 
 		uint Mask = 0;
 #if USE_FIXED_BY_COLOR

@@ -46,6 +46,8 @@ struct FGPUPhysicsObjectAllocInfo
 	FRHIShaderResourceView* ColorBufferSRV;
 
 	uint32 NumTriangles;
+
+	FMatrix44f LocalToWorld;
 };
 
 class FYQPhysicsScene
@@ -126,13 +128,12 @@ public:
 	void Initialize(FRHICommandListImmediate& RHICmdList, bool bIsBeginPlay, bool bForce);
 
 
-	// 与CPU对象交互
+	// ----------- 与CPU对象交互 -------------
 	void AddCPUActorToScene(USceneComponent* InActor);
 	void AddCPUActorToScene_RenderThread(FCPUObjectProxy* Proxy);
 	void UpdateCPUActor(USceneComponent* InActor);
 	void UpdateCPUActor_RenderThread(FCPUObjectProxy* Proxy, FVector WorldPosition, FVector Velocity);
 
-	void UpdateCPUObjectTransform();
 	TArray< FCPUObjectProxy*>& GetCPUObjectProxyList(){
 		return CPUObjectProxyListRenderThread;
 	}
@@ -151,6 +152,8 @@ public:
 
 	void AddPhysicsProxyToScene(FYQPhysicsProxy* Proxy);
 	void RemovePhysicsProxyFromScene(FYQPhysicsProxy* Proxy);
+	void UpdateGPUObjectTransform_GameThread(FYQPhysicsProxy* Proxy, UPrimitiveComponent* Primitive);
+	void UpdateGPUObjectTransform_RenderThread(FYQPhysicsProxy* Proxy, FMatrix44f LocalToWorld);
 
 	void ClearConstraints();
 
@@ -175,6 +178,15 @@ private:
 		FVector CenterPosition;
 		FVector Velocity;
 	};
+
+	struct FUpdateGPUObjectTransformCommand
+	{
+		FMatrix44f LocalToWorld;
+	};
+
+
+	void UpdateCPUObjectTransform();
+	void UpdateGPUObjectTransform(FRHICommandList& RHICmdList);
 
 	void CopyDataToCPU(FRHICommandList& RHICmdList);
 
@@ -261,6 +273,8 @@ private:
 	// 物理代理
 	TArray<FYQPhysicsProxy*> ProxyList;
 	TArray<FYQPhysicsProxy*> ProxyListRenderThread;
+
+	TMap<FYQPhysicsProxy*, FUpdateGPUObjectTransformCommand> UpdatedGPUObjectTransformsRenderThread;
 
 	// 约束数量
 	TArray<uint32> NumConstraintsList;

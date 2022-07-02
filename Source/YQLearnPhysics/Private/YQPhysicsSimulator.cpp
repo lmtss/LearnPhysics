@@ -316,10 +316,10 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 						//SumFeedBack -= CPUObjectProxy->Velocity;
 						//SumFeedBack += FVector(0, 0, 980 * DeltaSeconds);
 
-						UE_LOG(LogTemp, Log, TEXT("NaiveCollisionWithCollider (%f, %f, %f) (%f, %f, %f) NumFeedBack: %d")
+						/*UE_LOG(LogTemp, Log, TEXT("NaiveCollisionWithCollider (%f, %f, %f) (%f, %f, %f) NumFeedBack: %d")
 							, FeedBack.X, FeedBack.Y, FeedBack.Z
 							, SumFeedBack.X, SumFeedBack.Y, SumFeedBack.Z
-							, NumFeedBack);
+							, NumFeedBack);*/
 					}
 
 					AccFeedBacks[i] += SumFeedBack;

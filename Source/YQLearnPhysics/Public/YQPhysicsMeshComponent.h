@@ -36,7 +36,7 @@ private:
 protected:
 
 	virtual void CreateRenderState_Concurrent(FRegisterComponentContext* Context) override;
-
+	virtual void SendRenderTransform_Concurrent() override;
 	virtual bool ShouldCreateRenderState() const override;
 
 public:
@@ -46,9 +46,14 @@ public:
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
 	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
 
+	virtual void OnRegister() override;
+
 	virtual void PostInitProperties() override;
 	virtual void PostLoad() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+
+	virtual void OnCreatePhysicsState() override;
+	virtual bool ShouldCreatePhysicsState() const override;
 
 	virtual int32 GetNumMaterials() const override;
 	virtual UMaterialInterface* GetMaterial(int32 MaterialIndex) const override;
@@ -68,6 +73,12 @@ public:
 private:
 	FYQMeshPhysicsProxy* GPUPhysicsProxy;
 	bool IsCreateRenderStatePending;
+
+
+	bool ShouldCreateGPUPhysicsState() const;
+	bool IsGPUPhysicsStateCreated() const;
+
+	void CreateGPUPhysicsState();
 };
 
 

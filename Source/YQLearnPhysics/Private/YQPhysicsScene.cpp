@@ -7,6 +7,7 @@
 
 #include "StaticMeshCollision.h"
 #include "YQPhysicsSceneComputeShader.h"
+#include "ExternalForceSolve.h"
 
 #include "ConstraintsGenerate.h"
 
@@ -361,6 +362,58 @@ FBox FYQPhysicsScene::GetBoundingBox()
 
 //-------------------------------------------
 
+
+
+void FYQPhysicsScene::UpdateGPUObjectTransform_GameThread(FYQPhysicsProxy* Proxy, UPrimitiveComponent* Primitive)
+{
+	FMatrix44f LocalToWorld = FMatrix44f(Primitive->GetComponentToWorld().ToMatrixWithScale());
+
+	FYQPhysicsScene* PhysicsScene = this;
+	FYQPhysicsProxy* PhysicsProxy = Proxy;
+	ENQUEUE_RENDER_COMMAND(UpdateCPUActor)(
+		[PhysicsScene, PhysicsProxy, LocalToWorld](FRHICommandListImmediate& RHICmdList)
+	{
+		PhysicsScene->UpdateGPUObjectTransform_RenderThread(
+			PhysicsProxy
+			, LocalToWorld
+		);
+	}
+	);
+}
+
+void FYQPhysicsScene::UpdateGPUObjectTransform_RenderThread(FYQPhysicsProxy* Proxy, FMatrix44f LocalToWorld)
+{
+	FUpdateGPUObjectTransformCommand* Command = UpdatedGPUObjectTransformsRenderThread.Find(Proxy);
+	if (Command == nullptr)
+	{
+		FUpdateGPUObjectTransformCommand NewCommand;
+		NewCommand.LocalToWorld = LocalToWorld;
+		UpdatedGPUObjectTransformsRenderThread.Add(Proxy, NewCommand);
+	}
+	else
+	{
+		Command->LocalToWorld = LocalToWorld;
+	}
+}
+
+
+void FYQPhysicsScene::UpdateGPUObjectTransform(FRHICommandList& RHICmdList)
+{
+	for (auto Iter : UpdatedGPUObjectTransformsRenderThread)
+	{
+		FYQPhysicsProxy* Proxy = Iter.Key;
+		FUpdateGPUObjectTransformCommand& Command = Iter.Value;
+		FMatrix44f NewLocalToWorld = Command.LocalToWorld;
+		FMatrix44f PreviousWorldToLocal = Proxy->LocalToWorld.Inverse();
+
+		UpdateFixedParticlesTransform(RHICmdList, GetPositionBuffer().UAV, GetVertexMaskBuffer().SRV, PreviousWorldToLocal, NewLocalToWorld, Proxy->NumVertices, 0);
+
+		Proxy->LocalToWorld = NewLocalToWorld;
+	}
+
+	UpdatedCPUObjectTransformsRenderThread.Reset();
+}
+
 // todo
 void FYQPhysicsScene::AllocateBufferMemory(uint32 IndexBufferLength, uint32 AllocateVertexBufferLength, FYQPhysicsSceneBufferEntry& OutEntry)
 {
@@ -539,6 +592,7 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 	{
 		FGPUPhysicsObjectAllocInfo& Info = WaitingObjectList[i];
 
+
 		AppendParticlesToPhysicsScene_RenderThread(
 			RHICmdList
 			, PhysicsSceneViewBuffers[PhysicsSceneViewBufferPingPang].SRV
@@ -547,6 +601,7 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 			, PhysicsSceneViewBuffers[1 - PhysicsSceneViewBufferPingPang].UAV
 			, Info.ColorBufferSRV
 			, GetVertexMaskBuffer().UAV
+			, Info.LocalToWorld
 			, Info.Count
 		);
 
@@ -642,6 +697,8 @@ void FYQPhysicsScene::AddPhysicsProxyToScene_RenderThread(FRHICommandList& RHICm
 
 
 			}
+
+			Info.LocalToWorld = Proxy->LocalToWorld;
 
 			AddGPUObject(Info);
 		}

@@ -138,6 +138,7 @@ void AppendParticlesToPhysicsScene_RenderThread(
 	, FUnorderedAccessViewRHIRef OutPhysicsSceneViewBuffer
 	, FShaderResourceViewRHIRef InputColorBuffer
 	, FUnorderedAccessViewRHIRef OutputMaskBuffer
+	, FMatrix44f LocalToWorld
 	, uint32 NumParticles
 )
 {
@@ -157,6 +158,7 @@ void AppendParticlesToPhysicsScene_RenderThread(
 	PassParameters.NumParticles = NumParticles;
 	PassParameters.InputColorBuffer = InputColorBuffer;
 	PassParameters.OutputMaskBuffer = OutputMaskBuffer;
+	PassParameters.LocalToWorld = LocalToWorld;
 
 	SetShaderParameters(RHICmdList, ComputeShader, ComputeShader.GetComputeShader(), PassParameters);
 	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);

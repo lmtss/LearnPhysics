@@ -186,6 +186,8 @@ FYQMeshPhysicsProxy::FYQMeshPhysicsProxy(const UYQPhysicsMeshComponent* InCompon
 	BufferIndexOffset = 0;
 	NumBufferElement = NumTriangles;
 
+	LocalToWorld = FMatrix44f(InComponent->GetComponentTransform().ToMatrixWithScale());
+
 }
 
 void FYQMeshPhysicsProxy::GetDynamicPhysicsConstraints(FConstraintsBatch& OutBatch) const 
@@ -196,7 +198,15 @@ void FYQMeshPhysicsProxy::GetDynamicPhysicsConstraints(FConstraintsBatch& OutBat
 	OutBatch.NumConstraints = 1;
 }
 
+void UYQPhysicsMeshComponent::OnRegister()
+{
+	Super::OnRegister();
 
+	if (IsRegistered() || !IsRenderStateCreated())
+	{
+		IsCreateRenderStatePending = true;
+	}
+}
 
 void UYQPhysicsMeshComponent::PostInitProperties() {
 	
@@ -214,13 +224,27 @@ void UYQPhysicsMeshComponent::PostLoad()
 	//NotifyIfStaticMeshChanged();
 
 	// need to postload the StaticMesh because super initializes variables based on GetStaticLightingType() which we override and use from the StaticMesh
-	if (GetStaticMesh()) {
+	/*if (GetStaticMesh()) {
 		GetStaticMesh()->ConditionalPostLoad();
 
 		SetStaticMesh(GetStaticMesh());
-	}
+	}*/
 
 	Super::PostLoad();
+}
+
+void UYQPhysicsMeshComponent::SendRenderTransform_Concurrent()
+{
+	UWorld* World = GetWorld();
+	if (World && World->HasSubsystem<UYQPhysicsWorldSubsystem>() && GPUPhysicsProxy != nullptr)
+	{
+		UYQPhysicsWorldSubsystem* System = World->GetSubsystem<UYQPhysicsWorldSubsystem>();
+		System->GetGPUPhysicsScene()->UpdateGPUObjectTransform_GameThread(GPUPhysicsProxy, (UPrimitiveComponent*)this);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::SendRenderTransform_Concurrent"));
+	
+	Super::SendRenderTransform_Concurrent();
 }
 
 void UYQPhysicsMeshComponent::OnRep_StaticMesh(class UStaticMesh* OldStaticMesh)
@@ -257,42 +281,20 @@ UYQPhysicsMeshComponent::UYQPhysicsMeshComponent(const FObjectInitializer& Objec
 	GPUPhysicsProxy = nullptr;
 }
 
+
+
+
 bool UYQPhysicsMeshComponent::ShouldCreateRenderState() const 
 {
+	UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::ShouldCreateRenderState"));
 	if (!Super::ShouldCreateRenderState()) {
 		UE_LOG(LogStaticMesh, Verbose, TEXT("ShouldCreateRenderState returned false for %s (Base class was false)"), *GetFullName());
 		return false;
 	}
 
-	// It is especially important to avoid creating a render state for an invalid or compiling static mesh.
-	// The shader compiler might try to replace materials on a component that has a render state but doesn't 
-	// even have a render proxy which would cause huge game-thread stalls in render state recreation code that 
-	// doesn't have to be run in the first place.
-	if (GetStaticMesh() == nullptr) {
-		UE_LOG(LogStaticMesh, Verbose, TEXT("ShouldCreateRenderState returned false for %s (StaticMesh is null)"), *GetFullName());
-		return false;
-	}
+	
 
-	// The render state will be recreated after compilation finishes in case it is skipped here.
-	if (GetStaticMesh()->IsCompiling()) {
-		UE_LOG(LogStaticMesh, Verbose, TEXT("ShouldCreateRenderState returned false for %s (StaticMesh is not ready)"), *GetFullName());
-		return false;
-	}
-
-	if (GetStaticMesh()->GetRenderData()->LODResources[0].VertexBuffers.PositionVertexBuffer.VertexBufferRHI == nullptr) 		
-	{
-		return false;
-	}
-
-	if (GetWorld() == nullptr)return false;
-
-	if (GetWorld()->HasSubsystem<UYQPhysicsWorldSubsystem>() == false)return false;
-
-	if (!GetWorld()->GetSubsystem<UYQPhysicsWorldSubsystem>()->IsInitialized())return false;
-
-	if (GetWorld()->GetSubsystem<UYQPhysicsWorldSubsystem>()->GetGPUPhysicsScene() == nullptr)return false;
-
-	if (GPUPhysicsProxy != nullptr)return false;
+	if (GPUPhysicsProxy == nullptr)return false;
 
 	if (IsRenderStateCreated())return false;
 
@@ -345,8 +347,13 @@ void UYQPhysicsMeshComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	//UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::TickComponent"))
 	if (IsCreateRenderStatePending) 		
 	{
-		if (ShouldCreateRenderState()) 
+		if (IsPhysicsStateCreated())
 		{
+			IsCreateRenderStatePending = false;
+		}
+		else if (ShouldCreateGPUPhysicsState())
+		{
+			CreateGPUPhysicsState();
 			RecreateRenderState_Concurrent();
 		}
 	}
@@ -355,21 +362,71 @@ void UYQPhysicsMeshComponent::TickComponent(float DeltaTime, ELevelTick TickType
 void UYQPhysicsMeshComponent::CreateRenderState_Concurrent(FRegisterComponentContext* Context)
 {
 	IsCreateRenderStatePending = false;
+	
+	// 因为渲染资源当前是使用统一buffer，所以在注册到PhysicsScene之后再添加到渲染场景
+	//LLM_SCOPE(ELLMTag::StaticMesh);
+	Super::CreateRenderState_Concurrent(Context);
+}
+
+
+bool UYQPhysicsMeshComponent::IsGPUPhysicsStateCreated() const
+{
+	return GPUPhysicsProxy != nullptr;
+}
+
+bool UYQPhysicsMeshComponent::ShouldCreateGPUPhysicsState() const
+{
+	if (GetStaticMesh() == nullptr)
+	{
+		UE_LOG(LogStaticMesh, Verbose, TEXT("ShouldCreateGPUPhysicsState returned false for %s (StaticMesh is null)"), *GetFullName());
+		return false;
+	}
+
+	// The render state will be recreated after compilation finishes in case it is skipped here.
+	if (GetStaticMesh()->IsCompiling())
+	{
+		UE_LOG(LogStaticMesh, Verbose, TEXT("ShouldCreateGPUPhysicsState returned false for %s (StaticMesh is not ready)"), *GetFullName());
+		return false;
+	}
+
+	if (GetStaticMesh()->GetRenderData()->LODResources[0].VertexBuffers.PositionVertexBuffer.VertexBufferRHI == nullptr)
+	{
+		return false;
+	}
+
+	if (GetWorld() == nullptr)return false;
+
+	if (GetWorld()->HasSubsystem<UYQPhysicsWorldSubsystem>() == false)return false;
+
+	if (!GetWorld()->GetSubsystem<UYQPhysicsWorldSubsystem>()->IsInitialized())return false;
+
+	if (GetWorld()->GetSubsystem<UYQPhysicsWorldSubsystem>()->GetGPUPhysicsScene() == nullptr)return false;
+
+	return true;
+}
+
+bool UYQPhysicsMeshComponent::ShouldCreatePhysicsState() const
+{
+	return false;
+}
+
+
+void UYQPhysicsMeshComponent::CreateGPUPhysicsState()
+{
+	UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::OnCreatePhysicsState"));
 	UWorld* World = GetWorld();
 	FYQPhysicsScene* Scene = World->GetSubsystem<UYQPhysicsWorldSubsystem>()->GetGPUPhysicsScene();
 
 	// 注册到PhysicsScene
 	GPUPhysicsProxy = new FYQMeshPhysicsProxy(this);
 	Scene->AddPhysicsProxyToScene(GPUPhysicsProxy);
+}
 
-	/*ENQUEUE_RENDER_COMMAND(UYQPhysicsMeshComponent_PhysicsProxy)(
-		[&](FRHICommandListImmediate& RHICmdList) {
-		Scene->AddPhysicsProxyToScene(RHICmdList, GPUPhysicsProxy);
-	});*/
+void UYQPhysicsMeshComponent::OnCreatePhysicsState()
+{
+	
 
-	// 因为渲染资源当前是使用统一buffer，所以在注册到PhysicsScene之后再添加到渲染场景
-	//LLM_SCOPE(ELLMTag::StaticMesh);
-	Super::CreateRenderState_Concurrent(Context);
+
 }
 
 UMaterialInterface* UYQPhysicsMeshComponent::GetMaterial(int32 MaterialIndex) const

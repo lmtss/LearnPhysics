@@ -65,6 +65,9 @@ public:
     // 共有多少个元素，通常等同于多少个粒子    
     uint32 NumBufferElement;
 
+    //
+    FMatrix44f LocalToWorld;
+
     // 用来收集这个约束的信息来产生最终ComputeShader的Dispatch信息
     // 当前无论是`静态`还是`动态产生约束`都要经过这个函数
     virtual void GetDynamicPhysicsConstraints(FConstraintsBatch& OutBatch) const {};

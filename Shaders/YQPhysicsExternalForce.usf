@@ -30,10 +30,6 @@ void MainCS(uint3 ThreadId : SV_DispatchThreadID)
         float g = ExternalForceParams.x;
         float DeltaTime = ExternalForceParams.y;
 
-
-        
-
-
         //Velocity += abs(dot(WindParams.xyz, Normal)) * WindParams.xyz * WindParams.w * DeltaTime;
 
         float3 Position = InputPositionBuffer[ThreadId.x].rgb;
@@ -52,6 +48,40 @@ void MainCS(uint3 ThreadId : SV_DispatchThreadID)
     {
         OutputPositionBuffer[ThreadId.x] = InputPositionBuffer[ThreadId.x];
         VelocityBuffer[ThreadId.x] = half4(0, 0, 0, 1.0);
+    }
+}
+
+#endif
+
+
+#if UPDATE_FIXED_PARTICLES_TRANSFORM
+
+
+RWBuffer<float4> PositionBuffer;
+Buffer<uint> MaskBuffer;
+
+uint NumParticles;
+uint BaseParticle;
+
+float4x4 PreviousWorldToLocal;
+float4x4 NewLocalToWorld;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 ThreadId : SV_DispatchThreadID)
+{
+    if (ThreadId.x >= NumParticles)return;
+
+    uint ParticleID = ThreadId.x + BaseParticle;
+    uint Mask = MaskBuffer[ParticleID];
+    uint IsFixed = IsParticleFixed(Mask);
+
+    if (IsFixed == 1)
+    {
+        float3 PreviousWorldPosition = PositionBuffer[ParticleID].xyz;
+        float4 LocalPosition = mul(float4(PreviousWorldPosition, 1.0), PreviousWorldToLocal);
+        float4 WorldPosition = mul(float4(LocalPosition.xyz, 1.0), NewLocalToWorld);
+
+        PositionBuffer[ParticleID] = WorldPosition;
     }
 }
 

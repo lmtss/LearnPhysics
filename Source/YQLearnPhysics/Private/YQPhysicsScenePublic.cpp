@@ -139,4 +139,5 @@ void FYQPhysicsScene::Tick(FRHICommandList& RHICmdList)
 	AddGPUObjectToBuffer(RHICmdList);
 	CopyDataToCPU(RHICmdList);
 	UpdateCPUObjectTransform();
+	UpdateGPUObjectTransform(RHICmdList);
 }

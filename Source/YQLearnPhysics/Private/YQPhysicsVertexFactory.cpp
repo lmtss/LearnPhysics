@@ -57,15 +57,14 @@ IMPLEMENT_TYPE_LAYOUT(FYQPhysicsVertexFactoryShaderParametersVS);
 bool FYQPhysicsVertexFactory::ShouldCompilePermutation(const FVertexFactoryShaderPermutationParameters& Parameters) 
 {
 	if (
-		// Parameters.MaterialParameters.MaterialDomain == MD_Surface 
-		// && Parameters.MaterialParameters.ShadingModels == EMaterialShadingModel::MSM_Unlit 
-		// && !Parameters.MaterialParameters.bIsUsedWithMeshParticles
-		// && !Parameters.MaterialParameters.bIsUsedWithNiagaraMeshParticles
-		// && !Parameters.MaterialParameters.bIsUsedWithNiagaraRibbons
-		// && !Parameters.MaterialParameters.bIsUsedWithNiagaraSprites
-		// && !Parameters.MaterialParameters.bIsUsedWithLandscape
-		// || Parameters.MaterialParameters.bIsDefaultMaterial
-		Parameters.MaterialParameters.bIsDefaultMaterial
+		 Parameters.MaterialParameters.MaterialDomain == MD_Surface 
+		 //&& Parameters.MaterialParameters.ShadingModels == EMaterialShadingModel::MSM_Unlit 
+		 && !Parameters.MaterialParameters.bIsUsedWithMeshParticles
+		 && !Parameters.MaterialParameters.bIsUsedWithNiagaraMeshParticles
+		 && !Parameters.MaterialParameters.bIsUsedWithNiagaraRibbons
+		 && !Parameters.MaterialParameters.bIsUsedWithNiagaraSprites
+		 && !Parameters.MaterialParameters.bIsUsedWithLandscape
+		 || Parameters.MaterialParameters.bIsDefaultMaterial
 		)
 	{
 		return true;
