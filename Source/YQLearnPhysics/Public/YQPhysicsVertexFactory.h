@@ -43,7 +43,7 @@ public:
 	inline void SetUniformBuffer();
 
 	FUniformBufferRHIRef UniformBuffer;
-
+	uint32 BufferIDOffset;
 
 protected:
 
@@ -63,15 +63,8 @@ protected:
 #endif
 	} DebugName;
 
-
-
-	
-
 private:
-	void InitVertexResource_RenderThread(FRHICommandListImmediate& RHICmdList);
-
-	bool bIsPingpangA = true;
-
+	
 	
 };
 
@@ -91,4 +84,5 @@ struct FYQPhysicsUserData : public FOneFrameResource
 {
 	FRWBuffer* PositionBuffer;
 	FRWBuffer* NormalBuffer;
+	uint32 BufferIndexOffset;
 };

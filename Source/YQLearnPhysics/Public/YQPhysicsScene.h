@@ -48,6 +48,8 @@ struct FGPUPhysicsObjectAllocInfo
 	uint32 NumTriangles;
 
 	FMatrix44f LocalToWorld;
+
+	FYQPhysicsProxy* PhysicsProxy;
 };
 
 class FYQPhysicsScene

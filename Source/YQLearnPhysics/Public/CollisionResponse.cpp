@@ -141,7 +141,7 @@ void CopyPositionForCollision(
 	, uint32 NumParticles
 )
 {
-	SCOPED_DRAW_EVENT(RHICmdList, NaiveCollisionWithCollider);
+	SCOPED_DRAW_EVENT(RHICmdList, CopyPositionForCollision);
 
 	TShaderMapRef<FYQCopyPositionBufferCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
 	RHICmdList.SetComputeShader(ComputeShader.GetComputeShader());

@@ -166,6 +166,7 @@ public:
 		SHADER_PARAMETER_SRV(Buffer<half4>, InputColorBuffer)
 		SHADER_PARAMETER_UAV(RWBuffer<uint>, OutputMaskBuffer)
 		SHADER_PARAMETER(uint32, NumParticles)
+		SHADER_PARAMETER(uint32, BaseParticle)
 		SHADER_PARAMETER(FMatrix44f, LocalToWorld)
 		END_SHADER_PARAMETER_STRUCT()
 
@@ -267,6 +268,7 @@ void AppendParticlesToPhysicsScene_RenderThread(
 	, FUnorderedAccessViewRHIRef OutputMaskBuffer
 	, FMatrix44f LocalToWorld
 	, uint32 NumParticles
+	, uint32 BaseParticle
 );
 
 void CopyDataToCPUBuffer_RenderThread(

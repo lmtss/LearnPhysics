@@ -84,7 +84,7 @@ private:
 
 class FYQPhysicsMeshSceneProxy final : public FPrimitiveSceneProxy {
 public:
-	FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent* InComponent, FYQPhysicsSceneBufferEntry& InPhysicsSceneBufferEntry);
+	FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent* InComponent, uint32 InBufferIndexOffset);
 
 	~FYQPhysicsMeshSceneProxy();
 
@@ -112,7 +112,7 @@ public:
 	FStaticMeshRenderData* RenderData;
 
 	// 在物理场景的IndexBuffer中的偏移, Cache在这里
-	FYQPhysicsSceneBufferEntry& PhysicsSceneBufferEntry;
+	uint32 BufferIndexOffset;
 
 
 	FYQPhysicsScene* GPUPhysicsScene;

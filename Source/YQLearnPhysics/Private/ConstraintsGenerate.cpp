@@ -216,6 +216,7 @@ public:
 		SHADER_PARAMETER_UAV(RWBuffer<uint>, IDBufferB)
 		SHADER_PARAMETER(uint32, NumConstraints)
 		SHADER_PARAMETER(uint32, OffsetConstraints)
+		SHADER_PARAMETER(uint32, OffsetParticles)
 		END_SHADER_PARAMETER_STRUCT()
 
 public:
@@ -301,6 +302,7 @@ void GenerateDistanceConstraintsByCompactKey(
 	, FRHIShaderResourceView* ColorBuffer
 	, uint32 NumConstraints
 	, uint32 OffsetConstraints
+	, uint32 OffsetParticles
 )
 {
 	SCOPED_DRAW_EVENT(RHICmdList, CompactSortedKey);
@@ -319,6 +321,7 @@ void GenerateDistanceConstraintsByCompactKey(
 	PassParameters.PositionBuffer = PositionBuffer;
 	PassParameters.CompactKeyBuffer = CompactKeyBuffer;
 	PassParameters.ColorBuffer = ColorBuffer;
+	PassParameters.OffsetParticles = OffsetParticles;
 
 
 	SetShaderParameters(RHICmdList, CS, CS.GetComputeShader(), PassParameters);
@@ -344,6 +347,7 @@ int GenerateDistanceConstraintsFromMesh(
 	, FRHIShaderResourceView* ColorBuffer
 	, uint32 ConstraintsOffset
 	, uint32 NumTriangles
+	, uint32 OffsetParticles
 	, bool bTest
 )
 {
@@ -447,6 +451,7 @@ int GenerateDistanceConstraintsFromMesh(
 			, ColorBuffer
 			, NumUniqueConstraints
 			, ConstraintsOffset
+			, OffsetParticles
 		);
 	}
 
@@ -779,6 +784,7 @@ int GenerateDistanceBendingConstraintsFromMesh(
 			, ColorBuffer
 			, NumUniqueConstraints
 			, ConstraintsOffset
+			, 0
 		);
 	}
 

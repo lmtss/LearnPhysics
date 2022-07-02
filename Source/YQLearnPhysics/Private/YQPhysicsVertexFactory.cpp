@@ -84,14 +84,6 @@ void FYQPhysicsVertexFactory::ValidateCompiledResult(const FVertexFactoryType* T
 }
 
 
-
-
-void FYQPhysicsVertexFactory::InitVertexResource_RenderThread(FRHICommandListImmediate& RHICmdList)
-{
-
-
-}
-
 void FYQPhysicsVertexFactory::SetData(const FStaticMeshDataType& InData) {
 	check(IsInRenderingThread());
 
@@ -109,7 +101,7 @@ void FYQPhysicsVertexFactory::InitRHI()
 
 	FYQPhysicsUniformParameters Parameters;
 	//Parameters.ClothStructureBuffer = StructuredVertexSRV;
-	Parameters.YQPhysicsVertexOffset = 0;
+	Parameters.YQPhysicsVertexOffset = BufferIDOffset;
 	UniformBuffer = FYQPhysicsUniformBufferRef::CreateUniformBufferImmediate(Parameters, UniformBuffer_MultiFrame);
 
 	if (Data.PositionComponent.VertexBuffer != Data.TangentBasisComponents[0].VertexBuffer) {

@@ -31,5 +31,6 @@ int GenerateDistanceConstraintsFromMesh(
     , FRHIShaderResourceView* ColorBuffer
     , uint32 ConstraintsOffset
     , uint32 NumTriangles
+    , uint32 OffsetParticles
     , bool bTest = false
 );

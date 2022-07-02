@@ -247,7 +247,6 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 			PhysicsScene->SwapBuffer();
 		}
 	
-		
 
 		for (int CollisIter = 0; CollisIter < NumIters; CollisIter++)
 		{
@@ -329,7 +328,6 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 				//PhysicsScene->SwapBuffer();
 			}
 		}
-
 
 
 	}

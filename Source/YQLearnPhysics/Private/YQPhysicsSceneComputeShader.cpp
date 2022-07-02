@@ -140,6 +140,7 @@ void AppendParticlesToPhysicsScene_RenderThread(
 	, FUnorderedAccessViewRHIRef OutputMaskBuffer
 	, FMatrix44f LocalToWorld
 	, uint32 NumParticles
+	, uint32 BaseParticle
 )
 {
 	FYQAppendParticlesToPhysicsSceneCS::FPermutationDomain AppendPermutationVector;
@@ -156,6 +157,7 @@ void AppendParticlesToPhysicsScene_RenderThread(
 	PassParameters.OutputVertexBuffer = OutputVertexBuffer;
 	PassParameters.OutPhysicsSceneViewBuffer = OutPhysicsSceneViewBuffer;
 	PassParameters.NumParticles = NumParticles;
+	PassParameters.BaseParticle = BaseParticle;
 	PassParameters.InputColorBuffer = InputColorBuffer;
 	PassParameters.OutputMaskBuffer = OutputMaskBuffer;
 	PassParameters.LocalToWorld = LocalToWorld;

@@ -217,6 +217,7 @@ RWBuffer<uint> IDBufferA;
 RWBuffer<uint> IDBufferB;
 uint NumConstraints;
 uint OffsetConstraints;
+uint OffsetParticles;
 
 [numthreads(THREAD_COUNT, 1, 1)]
 void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, uint3 DispatchThreadId : SV_DispatchThreadID)
@@ -230,16 +231,16 @@ void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, 
 
 	uint WriteOffset = OffsetConstraints + ThreadID;
 	
-	uint PackedIndexA = IndexA;
+	uint PackedIndexA = IndexA + OffsetParticles;
 	if (ColorBuffer[IndexA].r > 0.8)
 	{
-		PackedIndexA = PackParticleToFixed(IndexA);
+		PackedIndexA = PackParticleToFixed(IndexA + OffsetParticles);
 	}
 
-	uint PackedIndexB = IndexB;
+	uint PackedIndexB = IndexB + OffsetParticles;
 	if (ColorBuffer[IndexB].r > 0.8)
 	{
-		PackedIndexB = PackParticleToFixed(IndexB);
+		PackedIndexB = PackParticleToFixed(IndexB + OffsetParticles);
 	}
 	
 	IDBufferA[WriteOffset] = PackedIndexA;

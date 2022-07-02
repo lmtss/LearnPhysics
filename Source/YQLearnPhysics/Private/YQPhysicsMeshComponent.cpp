@@ -5,18 +5,21 @@
 #include "YQPhysicsWorldSubsystem.h"
 
 
-FYQPhysicsMeshSceneProxy::FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent* InComponent, FYQPhysicsSceneBufferEntry& InPhysicsSceneBufferEntry)
+FYQPhysicsMeshSceneProxy::FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent* InComponent, uint32 InBufferIndexOffset)
 	: FPrimitiveSceneProxy(InComponent)
 	, RenderData(InComponent->GetStaticMesh()->GetRenderData())
 	, VertexFactory(GetScene().GetFeatureLevel(), "FYQPhysicsVertexFactory")
-	, PhysicsSceneBufferEntry(InPhysicsSceneBufferEntry)
+	, BufferIndexOffset(InBufferIndexOffset)
 {
 	ERHIFeatureLevel::Type Level = GetScene().GetFeatureLevel();
 	//UE_LOG(LogTemp, Log, TEXT("Level %d %d"), (uint32)Level, (uint32)ERHIFeatureLevel::SM6)
 	FStaticMeshVertexBuffers* StaticMeshVertexBuffers = &RenderData->LODResources[0].VertexBuffers;
 	FYQPhysicsVertexFactory* InVertexFactory = &VertexFactory;
+
+	uint32 InBufferIDOffset = BufferIndexOffset;
+
 	ENQUEUE_RENDER_COMMAND(StaticMeshVertexBuffersLegacyBspInit)(
-		[InVertexFactory, StaticMeshVertexBuffers](FRHICommandListImmediate& RHICmdList) {
+		[InVertexFactory, StaticMeshVertexBuffers, InBufferIDOffset](FRHICommandListImmediate& RHICmdList) {
 		check(StaticMeshVertexBuffers->PositionVertexBuffer.IsInitialized());
 		check(StaticMeshVertexBuffers->StaticMeshVertexBuffer.IsInitialized());
 
@@ -24,8 +27,9 @@ FYQPhysicsMeshSceneProxy::FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent
 		StaticMeshVertexBuffers->PositionVertexBuffer.BindPositionVertexBuffer(InVertexFactory, Data);
 		StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindTangentVertexBuffer(InVertexFactory, Data);
 		StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindPackedTexCoordVertexBuffer(InVertexFactory, Data);
-		//StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindLightMapVertexBuffer(InVertexFactory, Data, 1);
-		//FColorVertexBuffer::BindDefaultColorVertexBuffer(InVertexFactory, Data, FColorVertexBuffer::NullBindStride::ZeroForDefaultBufferBind);
+		
+		InVertexFactory->BufferIDOffset = InBufferIDOffset;
+		
 		InVertexFactory->SetData(Data);
 
 		//InitOrUpdateResource(InVertexFactory);
@@ -111,7 +115,7 @@ void FYQPhysicsMeshSceneProxy::GetDynamicMeshElements(const TArray<const FSceneV
 				BatchElement.IndexBuffer = &LODModel.IndexBuffer;
 				BatchElement.PrimitiveUniformBuffer = GetUniformBuffer();
 				BatchElement.BaseVertexIndex = 0;
-				BatchElement.FirstIndex = PhysicsSceneBufferEntry.IndexBufferOffset + Section.FirstIndex;	// 假设不同的Section被紧密的放置在一起
+				BatchElement.FirstIndex = Section.FirstIndex;
 				BatchElement.bIsInstanceRuns = false;
 				BatchElement.NumInstances = 1;
 				BatchElement.MinVertexIndex = 0;
@@ -123,6 +127,7 @@ void FYQPhysicsMeshSceneProxy::GetDynamicMeshElements(const TArray<const FSceneV
 				FYQPhysicsUserData* UserData = &Collector.AllocateOneFrameResource<FYQPhysicsUserData>();
 				UserData->PositionBuffer = &PhysicsScene->GetPositionBuffer();
 				UserData->NormalBuffer = &PhysicsScene->GetNormalBuffer();
+				UserData->BufferIndexOffset = BufferIndexOffset;
 
 				BatchElement.UserData = (void*)UserData;
 
@@ -188,6 +193,7 @@ FYQMeshPhysicsProxy::FYQMeshPhysicsProxy(const UYQPhysicsMeshComponent* InCompon
 
 	LocalToWorld = FMatrix44f(InComponent->GetComponentTransform().ToMatrixWithScale());
 
+	bIsRegisteredInGPUPhysicsScene = false;
 }
 
 void FYQMeshPhysicsProxy::GetDynamicPhysicsConstraints(FConstraintsBatch& OutBatch) const 
@@ -296,6 +302,9 @@ bool UYQPhysicsMeshComponent::ShouldCreateRenderState() const
 
 	if (GPUPhysicsProxy == nullptr)return false;
 
+
+	if (GPUPhysicsProxy != nullptr && GPUPhysicsProxy->bIsRegisteredInGPUPhysicsScene == false)return false;
+
 	if (IsRenderStateCreated())return false;
 
 	return true;
@@ -347,13 +356,16 @@ void UYQPhysicsMeshComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	//UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::TickComponent"))
 	if (IsCreateRenderStatePending) 		
 	{
-		if (IsPhysicsStateCreated())
+		if (IsGPUPhysicsStateCreated() && IsRenderStateCreated())
 		{
 			IsCreateRenderStatePending = false;
 		}
 		else if (ShouldCreateGPUPhysicsState())
 		{
 			CreateGPUPhysicsState();
+		}
+		else if (ShouldCreateRenderState())
+		{
 			RecreateRenderState_Concurrent();
 		}
 	}
@@ -361,6 +373,7 @@ void UYQPhysicsMeshComponent::TickComponent(float DeltaTime, ELevelTick TickType
 
 void UYQPhysicsMeshComponent::CreateRenderState_Concurrent(FRegisterComponentContext* Context)
 {
+	UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::CreateRenderState_Concurrent"));
 	IsCreateRenderStatePending = false;
 	
 	// 因为渲染资源当前是使用统一buffer，所以在注册到PhysicsScene之后再添加到渲染场景
@@ -376,6 +389,8 @@ bool UYQPhysicsMeshComponent::IsGPUPhysicsStateCreated() const
 
 bool UYQPhysicsMeshComponent::ShouldCreateGPUPhysicsState() const
 {
+	if (GPUPhysicsProxy != nullptr)return false;
+
 	if (GetStaticMesh() == nullptr)
 	{
 		UE_LOG(LogStaticMesh, Verbose, TEXT("ShouldCreateGPUPhysicsState returned false for %s (StaticMesh is null)"), *GetFullName());
@@ -476,7 +491,7 @@ FPrimitiveSceneProxy* UYQPhysicsMeshComponent::CreateSceneProxy()
 
 	UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::CreateSceneProxy"))
 
-	FPrimitiveSceneProxy* Proxy = new FYQPhysicsMeshSceneProxy(this, GPUPhysicsProxy->BufferEntry);
+	FPrimitiveSceneProxy* Proxy = new FYQPhysicsMeshSceneProxy(this, GPUPhysicsProxy->BufferIndexOffset);
 
 	return Proxy;
 }

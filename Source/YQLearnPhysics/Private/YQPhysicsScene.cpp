@@ -406,7 +406,7 @@ void FYQPhysicsScene::UpdateGPUObjectTransform(FRHICommandList& RHICmdList)
 		FMatrix44f NewLocalToWorld = Command.LocalToWorld;
 		FMatrix44f PreviousWorldToLocal = Proxy->LocalToWorld.Inverse();
 
-		UpdateFixedParticlesTransform(RHICmdList, GetPositionBuffer().UAV, GetVertexMaskBuffer().SRV, PreviousWorldToLocal, NewLocalToWorld, Proxy->NumVertices, 0);
+		UpdateFixedParticlesTransform(RHICmdList, GetPositionBuffer().UAV, GetVertexMaskBuffer().SRV, PreviousWorldToLocal, NewLocalToWorld, Proxy->NumVertices, Proxy->BufferIndexOffset);
 
 		Proxy->LocalToWorld = NewLocalToWorld;
 	}
@@ -587,6 +587,7 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 
 	PhysicsSceneViewBufferSwap();
 
+	uint32 BaseParticle = NumParticlesFromGPU;
 	// 将位置信息拷贝
 	for (int i = 0; i < NumObject; i++)
 	{
@@ -603,16 +604,41 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 			, GetVertexMaskBuffer().UAV
 			, Info.LocalToWorld
 			, Info.Count
+			, BaseParticle
 		);
 
 		PhysicsSceneViewBufferSwap();
+
+		FYQPhysicsProxy* PhysicsProxy = Info.PhysicsProxy;
+		uint32 ProxyBaseParticle = BaseParticle;
+
+		PhysicsProxy->BufferIndexOffset = ProxyBaseParticle;
+
+		FFunctionGraphTask::CreateAndDispatchWhenReady([PhysicsProxy, ProxyBaseParticle]()
+		{
+			PhysicsProxy->bIsRegisteredInGPUPhysicsScene = true;
+			UE_LOG(LogTemp, Log, TEXT("CreateAndDispatchWhenReady %d"), ProxyBaseParticle)
+
+		}
+			, TStatId{}
+			, nullptr
+			, ENamedThreads::GameThread
+			);
+
+		BaseParticle += PhysicsProxy->NumVertices;
 	}
 
+	
+
 	// 添加约束
+	uint32 NumDistanceConstraintsInScene = NumConstraintsList[(int)EConstraintType::Distance];
 	for (int i = 0; i < NumObject; i++)
 	{
 		FGPUPhysicsObjectAllocInfo& Info = WaitingObjectList[i];
 		FConstraintsBatch& ConstraintsBatch = Info.ConstraintsBatch;
+
+		FYQPhysicsProxy* PhysicsProxy = Info.PhysicsProxy;
+
 		if (ConstraintsBatch.Type == EConstraintType::Distance)
 		{
 			if (ConstraintsBatch.ConstraintSourceType == EConstraintSourceType::Mesh)
@@ -632,15 +658,19 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 					, IndexBufferSRV
 					, Info.VertexBuffer
 					, Info.ColorBufferSRV
-					, 0
+					, NumDistanceConstraintsInScene
 					, Info.NumTriangles
+					, PhysicsProxy->BufferIndexOffset
 				);
 
-				NumConstraintsList[(int)EConstraintType::Distance] += NumConstraintsNew;
+				NumDistanceConstraintsInScene += NumConstraintsNew;
+				
 			}
 		}
 
 	}
+
+	NumConstraintsList[(int)EConstraintType::Distance] = NumDistanceConstraintsInScene;
 
 	WaitingObjectList.Reset(0);
 }
@@ -699,6 +729,7 @@ void FYQPhysicsScene::AddPhysicsProxyToScene_RenderThread(FRHICommandList& RHICm
 			}
 
 			Info.LocalToWorld = Proxy->LocalToWorld;
+			Info.PhysicsProxy = Proxy;
 
 			AddGPUObject(Info);
 		}

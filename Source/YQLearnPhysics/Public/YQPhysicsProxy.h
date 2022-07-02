@@ -47,6 +47,7 @@ public:
 		uint64 PackedFlags;
 		struct {
             uint64 bIsIndexBuffer32 : 1;
+            uint64 bIsRegisteredInGPUPhysicsScene : 1;
 		};
 	};
 

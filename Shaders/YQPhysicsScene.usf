@@ -143,7 +143,9 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
 Buffer<uint> InPhysicsSceneViewBuffer;
 Buffer<float> InputVertexBuffer;
 RWBuffer<float4> OutputVertexBuffer;
+
 uint NumParticles;
+uint BaseParticle;
 
 float4x4 LocalToWorld;
 
@@ -157,7 +159,8 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
 {
 	uint ParticlesID = ThreadId.x;
 	uint OffsetNumParticles = GetOffsetNumParticles();
-	uint NumParticlesInScene = InPhysicsSceneViewBuffer[OffsetNumParticles];
+	//uint NumParticlesInScene = InPhysicsSceneViewBuffer[OffsetNumParticles];
+	uint NumParticlesInScene = BaseParticle;
 
 	if (ParticlesID < NumParticles)
 	{
@@ -174,7 +177,7 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
 		uint Mask = 0;
 #if USE_FIXED_BY_COLOR
 		half ColorR = InputColorBuffer[ParticlesID].r;
-		OutputMaskBuffer[ParticlesID] = ColorR > 0.8 ? PackParticleToFixed(Mask) : Mask;
+		OutputMaskBuffer[ParticlesID + NumParticlesInScene] = ColorR > 0.8 ? PackParticleToFixed(Mask) : Mask;
 #endif
 	}
 
