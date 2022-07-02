@@ -160,7 +160,9 @@ FPrimitiveViewRelevance FYQPhysicsMeshSceneProxy::GetViewRelevance(const FSceneV
 	return Relevance;
 }
 
-FYQMeshPhysicsProxy::FYQMeshPhysicsProxy(const UYQPhysicsMeshComponent* InComponent) : FYQPhysicsProxy()
+FYQMeshPhysicsProxy::FYQMeshPhysicsProxy(const UYQPhysicsMeshComponent* InComponent) 
+	: FYQPhysicsProxy()
+	, bUseBendingConstraints(InComponent->bUseBendingConstraints)
 {
 	FStaticMeshRenderData* RenderData = InComponent->GetStaticMesh()->GetRenderData();
 	FStaticMeshLODResources& StaticMeshResourceLOD0 = RenderData->LODResources[0];
@@ -198,10 +200,30 @@ FYQMeshPhysicsProxy::FYQMeshPhysicsProxy(const UYQPhysicsMeshComponent* InCompon
 
 void FYQMeshPhysicsProxy::GetDynamicPhysicsConstraints(FConstraintsBatch& OutBatch) const 
 {
-	OutBatch.Type = EConstraintType::Distance;
-	OutBatch.bUseMeshInfo = true;
-	OutBatch.ConstraintSourceType = EConstraintSourceType::Mesh;
-	OutBatch.NumConstraints = 1;
+	TArray<FConstraintsBatchElement>& BatchElements = OutBatch.Elements;
+
+	FConstraintsBatchElement DistanceConstraints;
+
+	DistanceConstraints.Type = EConstraintType::Distance;
+	DistanceConstraints.bUseMeshInfo = true;
+	DistanceConstraints.ConstraintSourceType = EConstraintSourceType::Mesh;
+	DistanceConstraints.NumConstraints = 1;
+
+
+	BatchElements.Add(DistanceConstraints);
+
+	if (bUseBendingConstraints)
+	{
+		FConstraintsBatchElement DistanceBendingConstraints;
+
+		DistanceBendingConstraints.Type = EConstraintType::DistanceBending;
+		DistanceBendingConstraints.bUseMeshInfo = true;
+		DistanceBendingConstraints.ConstraintSourceType = EConstraintSourceType::Mesh;
+		DistanceBendingConstraints.NumConstraints = 1;
+
+
+		BatchElements.Add(DistanceBendingConstraints);
+	}
 }
 
 void UYQPhysicsMeshComponent::OnRegister()
@@ -278,6 +300,7 @@ void UYQPhysicsMeshComponent::GetLifetimeReplicatedProps(TArray< FLifetimeProper
 
 UYQPhysicsMeshComponent::UYQPhysicsMeshComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer) 
+	, bUseBendingConstraints(false)
 {
 	PrimaryComponentTick.bCanEverTick = true;
 
@@ -285,6 +308,7 @@ UYQPhysicsMeshComponent::UYQPhysicsMeshComponent(const FObjectInitializer& Objec
 	IsCreateRenderStatePending = false;
 
 	GPUPhysicsProxy = nullptr;
+
 }
 
 

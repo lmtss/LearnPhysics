@@ -16,6 +16,7 @@ public:
 	virtual void GetDynamicPhysicsConstraints(FConstraintsBatch& OutBatch) const;
 private:
 
+	uint8 bUseBendingConstraints : 1;
 };
 
 /**
@@ -42,6 +43,10 @@ protected:
 public:
 	UFUNCTION(BlueprintCallable, Category = "Components|StaticMesh")
 		virtual bool SetStaticMesh(class UStaticMesh* NewMesh);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Cloth)
+		uint8 bUseBendingConstraints : 1;
+
 
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
 	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
@@ -79,6 +84,8 @@ private:
 	bool IsGPUPhysicsStateCreated() const;
 
 	void CreateGPUPhysicsState();
+
+
 };
 
 
@@ -116,6 +123,7 @@ public:
 
 
 	FYQPhysicsScene* GPUPhysicsScene;
+
 };
 
 

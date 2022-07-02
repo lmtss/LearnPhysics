@@ -20,56 +20,56 @@ public:
 	{
 		UE_LOG(LogTemp, Log, TEXT("FSimpleClothPhysicsProxy::GetDynamicPhysicsConstraints"))
 
-		OutBatch.Type = EConstraintType::Distance;
-		OutBatch.bUseMeshInfo = false;
+		//OutBatch.Type = EConstraintType::Distance;
+		//OutBatch.bUseMeshInfo = false;
 
-		// 横向的约束，32行，每行31个约束
-		for(int Row = 0; Row < 32; Row++)
-		{
-			for(int Col = 0; Col < 31; Col++)
-			{
-				uint32 LeftParticleID = Row * 32 + Col;
-				uint32 RightParticleID = LeftParticleID + 1;
+		//// 横向的约束，32行，每行31个约束
+		//for(int Row = 0; Row < 32; Row++)
+		//{
+		//	for(int Col = 0; Col < 31; Col++)
+		//	{
+		//		uint32 LeftParticleID = Row * 32 + Col;
+		//		uint32 RightParticleID = LeftParticleID + 1;
 
-				if(IsFixed(RightParticleID))
-				{
-					uint32 t = LeftParticleID;
-					LeftParticleID = RightParticleID;
-					RightParticleID = t;
-				}
+		//		if(IsFixed(RightParticleID))
+		//		{
+		//			uint32 t = LeftParticleID;
+		//			LeftParticleID = RightParticleID;
+		//			RightParticleID = t;
+		//		}
 
-				LeftParticleID = HandleParticleID(LeftParticleID);
+		//		LeftParticleID = HandleParticleID(LeftParticleID);
 
-				OutBatch.UIntBuffer.Add(LeftParticleID);
-				OutBatch.UIntBuffer.Add(RightParticleID);
-				OutBatch.FloatBuffer.Add(10.0f);
-				OutBatch.NumConstraints++;
-			}
-		}
+		//		OutBatch.UIntBuffer.Add(LeftParticleID);
+		//		OutBatch.UIntBuffer.Add(RightParticleID);
+		//		OutBatch.FloatBuffer.Add(10.0f);
+		//		OutBatch.NumConstraints++;
+		//	}
+		//}
 
-		// 纵向的约束，31行，每行32个约束
-		for(int Row = 0; Row < 31; Row++)
-		{
-			for(int Col = 0; Col < 32; Col++)
-			{
-				uint32 LeftParticleID = Row * 32 + Col;
-				uint32 RightParticleID = LeftParticleID + 32;
+		//// 纵向的约束，31行，每行32个约束
+		//for(int Row = 0; Row < 31; Row++)
+		//{
+		//	for(int Col = 0; Col < 32; Col++)
+		//	{
+		//		uint32 LeftParticleID = Row * 32 + Col;
+		//		uint32 RightParticleID = LeftParticleID + 32;
 
-				if(IsFixed(RightParticleID))
-				{
-					uint32 t = LeftParticleID;
-					LeftParticleID = RightParticleID;
-					RightParticleID = t;
-				}
+		//		if(IsFixed(RightParticleID))
+		//		{
+		//			uint32 t = LeftParticleID;
+		//			LeftParticleID = RightParticleID;
+		//			RightParticleID = t;
+		//		}
 
-				LeftParticleID = HandleParticleID(LeftParticleID);
+		//		LeftParticleID = HandleParticleID(LeftParticleID);
 
-				OutBatch.UIntBuffer.Add(LeftParticleID);
-				OutBatch.UIntBuffer.Add(RightParticleID);
-				OutBatch.FloatBuffer.Add(10.0f);
-				OutBatch.NumConstraints++;
-			}
-		}
+		//		OutBatch.UIntBuffer.Add(LeftParticleID);
+		//		OutBatch.UIntBuffer.Add(RightParticleID);
+		//		OutBatch.FloatBuffer.Add(10.0f);
+		//		OutBatch.NumConstraints++;
+		//	}
+		//}
 
 	}
 private:

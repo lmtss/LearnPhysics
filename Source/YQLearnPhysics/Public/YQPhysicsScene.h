@@ -41,7 +41,7 @@ struct FGPUPhysicsObjectAllocInfo
 	FShaderResourceViewRHIRef VertexBuffer;
 
 	FConstraintsBatch ConstraintsBatch;
-	FBufferRHIRef IndexBufferRHI;
+	FShaderResourceViewRHIRef IndexBufferSRV;
 	FBufferRHIRef VertexBufferRHI;
 	FRHIShaderResourceView* ColorBufferSRV;
 
@@ -50,6 +50,15 @@ struct FGPUPhysicsObjectAllocInfo
 	FMatrix44f LocalToWorld;
 
 	FYQPhysicsProxy* PhysicsProxy;
+
+	union
+	{
+		uint32 PackedFlags;
+		struct
+		{
+			uint32 bNeedCopyVertex : 1;
+		};
+	};
 };
 
 class FYQPhysicsScene

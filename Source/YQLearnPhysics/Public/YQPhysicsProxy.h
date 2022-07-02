@@ -12,7 +12,7 @@ struct FYQPhysicsSceneBufferEntry
     uint32 VertexBufferOffset;
 };
 
-struct FConstraintsBatch
+struct FConstraintsBatchElement
 {
     EConstraintType Type = EConstraintType::Num;
     EConstraintSourceType ConstraintSourceType = EConstraintSourceType::Num;
@@ -21,12 +21,21 @@ struct FConstraintsBatch
     TArray<uint32> UIntBuffer;
     TArray<float> FloatBuffer;
 
-    union {
+    union
+    {
         uint64 PackedFlags;
-        struct {
+        struct
+        {
             uint64 bUseMeshInfo : 1;
         };
     };
+};
+
+struct FConstraintsBatch
+{
+    TArray<FConstraintsBatchElement> Elements;
+
+    
 };
 
 struct FYQCollisionInfo

@@ -508,6 +508,7 @@ public:
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER_SRV(Buffer<uint>, SortedEdgeKeyBuffer)
+		SHADER_PARAMETER_SRV(Buffer<uint>, InputTriangleIDBuffer)
 		SHADER_PARAMETER_UAV(RWBuffer<uint>, OutputTriangleIDBuffer)
 		SHADER_PARAMETER_UAV(RWBuffer<uint>, GlobalOffsetBuffer)
 		SHADER_PARAMETER(uint32, GlobalOffsetIndex)
@@ -553,6 +554,7 @@ public:
 		SHADER_PARAMETER_SRV(Buffer<float>, ColorBuffer)
 		SHADER_PARAMETER(uint32, NumConstraints)
 		SHADER_PARAMETER(uint32, OffsetConstraints)
+		SHADER_PARAMETER(uint32, OffsetParticles)
 		END_SHADER_PARAMETER_STRUCT()
 
 public:
@@ -606,6 +608,7 @@ void GenerateBendingConstraintsKeyAndTriangleIndexFromMesh(
 void CalcBendingConstraintsTriangleIndex(
 	FRHICommandList& RHICmdList
 	, FShaderResourceViewRHIRef SortedEdgeKeyBuffer
+	, FShaderResourceViewRHIRef InputTriangleIDBuffer
 	, FUnorderedAccessViewRHIRef OutputTriangleIDBuffer
 	, FUnorderedAccessViewRHIRef InGlobalOffsetBuffer
 	, uint32 GlobalOffsetIndex
@@ -625,6 +628,7 @@ void CalcBendingConstraintsTriangleIndex(
 	PassParameters.SortedEdgeKeyBuffer = SortedEdgeKeyBuffer;
 	PassParameters.OutputTriangleIDBuffer = OutputTriangleIDBuffer;
 	PassParameters.GlobalOffsetBuffer = InGlobalOffsetBuffer;
+	PassParameters.InputTriangleIDBuffer = InputTriangleIDBuffer;
 
 
 	SetShaderParameters(RHICmdList, CompactKeyCS, CompactKeyCS.GetComputeShader(), PassParameters);
@@ -643,6 +647,7 @@ void GenerateDistanceBendingConstraints(
 	, FRHIShaderResourceView* ColorBuffer
 	, uint32 NumConstraints
 	, uint32 OffsetConstraints
+	, uint32 OffsetParticles
 )
 {
 	SCOPED_DRAW_EVENT(RHICmdList, GenerateDistanceBendingConstraints);
@@ -662,13 +667,15 @@ void GenerateDistanceBendingConstraints(
 	PassParameters.CombinedTriangleIDBuffer = CombinedTriangleIDBuffer;
 	PassParameters.NumConstraints = NumConstraints;
 	PassParameters.OffsetConstraints = OffsetConstraints;
-
+	PassParameters.OffsetParticles = OffsetParticles;
 
 	SetShaderParameters(RHICmdList, CS, CS.GetComputeShader(), PassParameters);
 	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
 	UnsetShaderUAVs(RHICmdList, CS, CS.GetComputeShader());
 }
 
+
+FRWBuffer ConstraintTriangleIndexBuffer[2];
 
 
 int GenerateDistanceBendingConstraintsFromMesh(
@@ -681,6 +688,7 @@ int GenerateDistanceBendingConstraintsFromMesh(
 	, FRHIShaderResourceView* ColorBuffer
 	, uint32 ConstraintsOffset
 	, uint32 NumTriangles
+	, uint32 OffsetParticles
 	, bool bTest
 )
 {
@@ -693,19 +701,25 @@ int GenerateDistanceBendingConstraintsFromMesh(
 		GlobalOffsetBuffer.Initialize(TEXT("GlobalOffsetBuffer"), sizeof(uint32), 1, EPixelFormat::PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
 	}
 
+	if (ConstraintTriangleIndexBuffer[0].SRV == nullptr)
+	{
+		ConstraintTriangleIndexBuffer[0].Initialize(TEXT("TriangleIndexBuffer-0"), sizeof(uint32), MaxKeyBufferLength, EPixelFormat::PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+		ConstraintTriangleIndexBuffer[1].Initialize(TEXT("TriangleIndexBuffer-1"), sizeof(uint32), MaxKeyBufferLength, EPixelFormat::PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+	}
+
 	YQInitializeSizeBuffer(RHICmdList, GlobalOffsetBuffer.UAV, 1, 0);
 
-	GenerateDistanceConstraintsKeyFromMesh(RHICmdList, IndexBuffer, ConstraintKeyBuffers[0].UAV, NumTriangles);
+	GenerateBendingConstraintsKeyAndTriangleIndexFromMesh(RHICmdList, IndexBuffer, ConstraintKeyBuffers[0].UAV, ConstraintTriangleIndexBuffer[0].UAV,  NumTriangles);
 
 	FGPUSortBuffers GPUSortBuffers;
 	GPUSortBuffers.RemoteKeySRVs[0] = ConstraintKeyBuffers[0].SRV;
 	GPUSortBuffers.RemoteKeySRVs[1] = ConstraintKeyBuffers[1].SRV;
 	GPUSortBuffers.RemoteKeyUAVs[0] = ConstraintKeyBuffers[0].UAV;
 	GPUSortBuffers.RemoteKeyUAVs[1] = ConstraintKeyBuffers[1].UAV;
-	GPUSortBuffers.RemoteValueSRVs[0] = nullptr;
-	GPUSortBuffers.RemoteValueSRVs[1] = nullptr;
-	GPUSortBuffers.RemoteValueUAVs[0] = nullptr;
-	GPUSortBuffers.RemoteValueUAVs[1] = nullptr;
+	GPUSortBuffers.RemoteValueSRVs[0] = ConstraintTriangleIndexBuffer[0].SRV;
+	GPUSortBuffers.RemoteValueSRVs[1] = ConstraintTriangleIndexBuffer[1].SRV;
+	GPUSortBuffers.RemoteValueUAVs[0] = ConstraintTriangleIndexBuffer[0].UAV;
+	GPUSortBuffers.RemoteValueUAVs[1] = ConstraintTriangleIndexBuffer[1].UAV;
 
 	int32 BufferIndex = SortGPUBuffers(
 		RHICmdList
@@ -718,10 +732,11 @@ int GenerateDistanceBendingConstraintsFromMesh(
 
 	YQInitializeSizeBuffer(RHICmdList, ConstraintKeyBuffers[1 - BufferIndex].UAV, NumTriangles * 4, 0);
 
-	CompactSortedKey(
+	CalcBendingConstraintsTriangleIndex(
 		RHICmdList
 		, ConstraintKeyBuffers[BufferIndex].SRV
-		, ConstraintKeyBuffers[1 - BufferIndex].UAV
+		, ConstraintTriangleIndexBuffer[BufferIndex].SRV
+		, ConstraintTriangleIndexBuffer[1 - BufferIndex].UAV
 		, GlobalOffsetBuffer.UAV
 		, 0
 		, NumTriangles * 3
@@ -735,25 +750,6 @@ int GenerateDistanceBendingConstraintsFromMesh(
 	RHIUnlockBuffer(GlobalOffsetBuffer.Buffer);
 
 	// ----- Log
-	if (bTest)
-	{
-		YQInitializeSizeBuffer(RHICmdList, ConstraintKeyBuffers[BufferIndex].UAV, MaxKeyBufferLength, 0);
-
-		GPUSortBuffers.RemoteKeySRVs[0] = ConstraintKeyBuffers[1 - BufferIndex].SRV;
-		GPUSortBuffers.RemoteKeySRVs[1] = ConstraintKeyBuffers[BufferIndex].SRV;
-		GPUSortBuffers.RemoteKeyUAVs[0] = ConstraintKeyBuffers[1 - BufferIndex].UAV;
-		GPUSortBuffers.RemoteKeyUAVs[1] = ConstraintKeyBuffers[BufferIndex].UAV;
-
-		BufferIndex = SortGPUBuffers(
-			RHICmdList
-			, GPUSortBuffers
-			, 0
-			, 0xFFFFFFFF
-			, NumUniqueConstraints
-			, ERHIFeatureLevel::SM5
-		);
-	}
-	else
 	{
 		BufferIndex = 1 - BufferIndex;
 	}
@@ -774,9 +770,10 @@ int GenerateDistanceBendingConstraintsFromMesh(
 
 	if (ParticleA != nullptr && PositionBuffer != nullptr)
 	{
-		GenerateDistanceConstraintsByCompactKey(
+		GenerateDistanceBendingConstraints(
 			RHICmdList
-			, ConstraintKeyBuffers[BufferIndex].SRV
+			, IndexBuffer
+			, ConstraintTriangleIndexBuffer[BufferIndex].SRV
 			, PositionBuffer
 			, DistanceBuffer
 			, ParticleA
@@ -784,7 +781,7 @@ int GenerateDistanceBendingConstraintsFromMesh(
 			, ColorBuffer
 			, NumUniqueConstraints
 			, ConstraintsOffset
-			, 0
+			, OffsetParticles
 		);
 	}
 

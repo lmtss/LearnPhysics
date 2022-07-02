@@ -588,50 +588,56 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 	PhysicsSceneViewBufferSwap();
 
 	uint32 BaseParticle = NumParticlesFromGPU;
+
 	// 将位置信息拷贝
 	for (int i = 0; i < NumObject; i++)
 	{
 		FGPUPhysicsObjectAllocInfo& Info = WaitingObjectList[i];
 
-
-		AppendParticlesToPhysicsScene_RenderThread(
-			RHICmdList
-			, PhysicsSceneViewBuffers[PhysicsSceneViewBufferPingPang].SRV
-			, Info.VertexBuffer
-			, GetPositionBuffer().UAV
-			, PhysicsSceneViewBuffers[1 - PhysicsSceneViewBufferPingPang].UAV
-			, Info.ColorBufferSRV
-			, GetVertexMaskBuffer().UAV
-			, Info.LocalToWorld
-			, Info.Count
-			, BaseParticle
-		);
-
-		PhysicsSceneViewBufferSwap();
-
-		FYQPhysicsProxy* PhysicsProxy = Info.PhysicsProxy;
-		uint32 ProxyBaseParticle = BaseParticle;
-
-		PhysicsProxy->BufferIndexOffset = ProxyBaseParticle;
-
-		FFunctionGraphTask::CreateAndDispatchWhenReady([PhysicsProxy, ProxyBaseParticle]()
+		if (Info.bNeedCopyVertex)
 		{
-			PhysicsProxy->bIsRegisteredInGPUPhysicsScene = true;
-			UE_LOG(LogTemp, Log, TEXT("CreateAndDispatchWhenReady %d"), ProxyBaseParticle)
-
-		}
-			, TStatId{}
-			, nullptr
-			, ENamedThreads::GameThread
+			AppendParticlesToPhysicsScene_RenderThread(
+				RHICmdList
+				, PhysicsSceneViewBuffers[PhysicsSceneViewBufferPingPang].SRV
+				, Info.VertexBuffer
+				, GetPositionBuffer().UAV
+				, PhysicsSceneViewBuffers[1 - PhysicsSceneViewBufferPingPang].UAV
+				, Info.ColorBufferSRV
+				, GetVertexMaskBuffer().UAV
+				, Info.LocalToWorld
+				, Info.Count
+				, BaseParticle
 			);
 
-		BaseParticle += PhysicsProxy->NumVertices;
+			PhysicsSceneViewBufferSwap();
+
+			FYQPhysicsProxy* PhysicsProxy = Info.PhysicsProxy;
+			uint32 ProxyBaseParticle = BaseParticle;
+
+			PhysicsProxy->BufferIndexOffset = ProxyBaseParticle;
+
+			FFunctionGraphTask::CreateAndDispatchWhenReady([PhysicsProxy, ProxyBaseParticle]()
+			{
+				PhysicsProxy->bIsRegisteredInGPUPhysicsScene = true;
+				UE_LOG(LogTemp, Log, TEXT("CreateAndDispatchWhenReady %d"), ProxyBaseParticle)
+
+			}
+				, TStatId{}
+					, nullptr
+					, ENamedThreads::GameThread
+					);
+
+			BaseParticle += PhysicsProxy->NumVertices;
+		}
+		
 	}
 
 	
 
 	// 添加约束
 	uint32 NumDistanceConstraintsInScene = NumConstraintsList[(int)EConstraintType::Distance];
+	uint32 NumDistanceBendingConstraintsInScene = NumConstraintsList[(int)EConstraintType::DistanceBending];
+
 	for (int i = 0; i < NumObject; i++)
 	{
 		FGPUPhysicsObjectAllocInfo& Info = WaitingObjectList[i];
@@ -639,38 +645,66 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 
 		FYQPhysicsProxy* PhysicsProxy = Info.PhysicsProxy;
 
-		if (ConstraintsBatch.Type == EConstraintType::Distance)
+		uint32 NumConstraintTypes = ConstraintsBatch.Elements.Num();
+
+		for (uint32 ElementIndex = 0; ElementIndex < NumConstraintTypes; ElementIndex++)
 		{
-			if (ConstraintsBatch.ConstraintSourceType == EConstraintSourceType::Mesh)
+			FConstraintsBatchElement& BatchElement = ConstraintsBatch.Elements[ElementIndex];
+
+			EConstraintType ConstraintType = BatchElement.Type;
+			EConstraintSourceType ConstraintSourceType = BatchElement.ConstraintSourceType;
+
+			if (ConstraintType == EConstraintType::Distance)
 			{
-				bool bIsIndexBuffer32 = false;
-				FShaderResourceViewRHIRef IndexBufferSRV = RHICreateShaderResourceView(
-					Info.IndexBufferRHI
-					, bIsIndexBuffer32 ? 4 : 2
-					, bIsIndexBuffer32 ? PF_R32_UINT : PF_R16_UINT
-				);
+				if (ConstraintSourceType == EConstraintSourceType::Mesh)
+				{
+					int NumConstraintsNew = GenerateDistanceConstraintsFromMesh(
+						RHICmdList
+						, DistanceConstraintsParticleAIDBuffer.UAV
+						, DistanceConstraintsParticleBIDBuffer.UAV
+						, DistanceConstraintsDistanceBuffer.UAV
+						, Info.IndexBufferSRV
+						, Info.VertexBuffer
+						, Info.ColorBufferSRV
+						, NumDistanceConstraintsInScene
+						, Info.NumTriangles
+						, PhysicsProxy->BufferIndexOffset
+					);
 
-				int NumConstraintsNew = GenerateDistanceConstraintsFromMesh(
-					RHICmdList
-					, DistanceConstraintsParticleAIDBuffer.UAV
-					, DistanceConstraintsParticleBIDBuffer.UAV
-					, DistanceConstraintsDistanceBuffer.UAV
-					, IndexBufferSRV
-					, Info.VertexBuffer
-					, Info.ColorBufferSRV
-					, NumDistanceConstraintsInScene
-					, Info.NumTriangles
-					, PhysicsProxy->BufferIndexOffset
-				);
+					NumDistanceConstraintsInScene += NumConstraintsNew;
+				}
+			}
+			else if (ConstraintType == EConstraintType::DistanceBending)
+			{
+				if (ConstraintSourceType == EConstraintSourceType::Mesh)
+				{
+					int NumConstraintsNew = GenerateDistanceBendingConstraintsFromMesh(
+						RHICmdList
+						, DistanceConstraintsParticleAIDBuffer.UAV
+						, DistanceConstraintsParticleBIDBuffer.UAV
+						, DistanceConstraintsDistanceBuffer.UAV
+						, Info.IndexBufferSRV
+						, Info.VertexBuffer
+						, Info.ColorBufferSRV
+						, NumDistanceConstraintsInScene
+						, Info.NumTriangles
+						, PhysicsProxy->BufferIndexOffset
+					);
 
-				NumDistanceConstraintsInScene += NumConstraintsNew;
-				
+					NumDistanceBendingConstraintsInScene += NumConstraintsNew;
+					NumDistanceConstraintsInScene += NumConstraintsNew;
+				}
 			}
 		}
 
+		
+		uint64 PtrForLog = (uint64)Info.PhysicsProxy;
+
+		UE_LOG(LogTemp, Log, TEXT("AddGPUObjectToBuffer  PtrForLog: %d   %d    %d "), PtrForLog, NumConstraintTypes, Info.PhysicsProxy->BufferIndexOffset);
 	}
 
 	NumConstraintsList[(int)EConstraintType::Distance] = NumDistanceConstraintsInScene;
+	NumConstraintsList[(int)EConstraintType::DistanceBending] = NumDistanceBendingConstraintsInScene;
 
 	WaitingObjectList.Reset(0);
 }
@@ -689,26 +723,34 @@ void FYQPhysicsScene::AddPhysicsProxyToScene_RenderThread(FRHICommandList& RHICm
 	FConstraintsBatch Batch;
 	Proxy->GetDynamicPhysicsConstraints(Batch);
 
-	uint32 NumConstraints = Batch.NumConstraints;
+	uint32 NumConstraintTypes = Batch.Elements.Num();
 
-	if (NumConstraints > 0)
+	if (NumConstraintTypes > 0)
 	{
-		EConstraintType ConstraintType = Batch.Type;
+		FGPUPhysicsObjectAllocInfo Info;
+		Info.Bitmask = 0;
 
-		if (Batch.ConstraintSourceType == EConstraintSourceType::Mesh) // 使用Mesh的Buffer创建约束	
+		bool bNeedCopyVertex = false;			// 是否将网格中的顶点拷贝到GPU场景
+		bool bNeedVertexColorBuffer = false;	// 是否需要顶点色
+
+		for (uint32 ElementIndex = 0; ElementIndex < NumConstraintTypes; ElementIndex++)
 		{
-			int NumTriangles = Proxy->NumBufferElement;
-			FYQPhysicsSceneBufferEntry& BufferEntry = Proxy->BufferEntry;
-			AllocateBufferMemory(NumTriangles * 3, Proxy->NumVertices, BufferEntry);
-			//CopyBufferToPhysicsScene(RHICmdList, Proxy->IndexBufferRHI, Proxy->VertexBufferRHI, BufferEntry, NumTriangles, Proxy->NumVertices, Proxy->bIsIndexBuffer32);
+			FConstraintsBatchElement& BatchElement = Batch.Elements[ElementIndex];
 
+			EConstraintType ConstraintType = BatchElement.Type;
+
+			// 距离约束这样的情况，需要用网格中的顶点来计算，所以是true
+			// 如果是shape match这种，则是用生成的体素来计算，所以是false
+			if (ConstraintType == EConstraintType::Distance || ConstraintType == EConstraintType::DistanceBending)
+			{
+				bNeedCopyVertex = true;
+				bNeedVertexColorBuffer = true;
+			}
+		}
+
+		if (bNeedCopyVertex)
+		{
 			FShaderResourceViewRHIRef PositionBufferSRV = RHICreateShaderResourceView(Proxy->VertexBufferRHI, sizeof(float), PF_R32_FLOAT);
-			
-			FGPUPhysicsObjectAllocInfo Info;
-			Info.Count = Proxy->NumVertices;
-			Info.Bitmask = 0;
-			Info.VertexBuffer = PositionBufferSRV;
-
 			FShaderResourceViewRHIRef IndexBufferSRV = RHICreateShaderResourceView(
 				Proxy->IndexBufferRHI
 				, Proxy->bIsIndexBuffer32 ? 4 : 2
@@ -716,66 +758,115 @@ void FYQPhysicsScene::AddPhysicsProxyToScene_RenderThread(FRHICommandList& RHICm
 			);
 
 			Proxy->IndexBufferSRV = IndexBufferSRV;
-
-			if (ConstraintType == EConstraintType::Distance)
-			{
-				Info.ConstraintsBatch = Batch;
-				Info.IndexBufferRHI = Proxy->IndexBufferRHI;
-				Info.VertexBufferRHI = Proxy->VertexBufferRHI;
-				Info.ColorBufferSRV = Proxy->ColorBufferSRV;
-				Info.NumTriangles = NumTriangles;
-
-
-			}
-
-			Info.LocalToWorld = Proxy->LocalToWorld;
-			Info.PhysicsProxy = Proxy;
-
-			AddGPUObject(Info);
+			Info.Count = Proxy->NumVertices;
+			Info.VertexBuffer = PositionBufferSRV;
+			Info.IndexBufferSRV = IndexBufferSRV;
+			Info.NumTriangles = Proxy->NumBufferElement;
 		}
-		else
+
+		Info.bNeedCopyVertex = bNeedCopyVertex;
+
+		if (bNeedVertexColorBuffer)
 		{
-			// 整型参数
-			uint32 NumUIntParam = Batch.UIntBuffer.Num();
-			void* WBuffer = RHILockBuffer(TempUIntConstraintsParamBuffer.Buffer, 0, NumUIntParam * sizeof(uint32), RLM_WriteOnly);
-			uint32* UIntBuffer = static_cast<uint32*>(WBuffer);
-
-			for (uint32 i = 0; i < NumUIntParam; i++)
-			{
-				uint32 Value = Batch.UIntBuffer[i];
-				UIntBuffer[i] = Value;
-			}
-
-			RHIUnlockBuffer(TempUIntConstraintsParamBuffer.Buffer);
-
-			// 浮点型参数
-			uint32 NumFloatParam = Batch.FloatBuffer.Num();
-			WBuffer = RHILockBuffer(TempFloatConstraintsParamBuffer.Buffer, 0, NumFloatParam * sizeof(float), RLM_WriteOnly);
-			float* FloatBuffer = static_cast<float*>(WBuffer);
-
-			for (uint32 i = 0; i < NumFloatParam; i++)
-			{
-				FloatBuffer[i] = Batch.FloatBuffer[i];
-			}
-
-			RHIUnlockBuffer(TempFloatConstraintsParamBuffer.Buffer);
-
-			GenerateDistanceConstraints(
-				RHICmdList
-				, DistanceConstraintsParticleAIDBuffer.UAV
-				, DistanceConstraintsParticleBIDBuffer.UAV
-				, DistanceConstraintsDistanceBuffer.UAV
-				, TempUIntConstraintsParamBuffer.SRV
-				, TempFloatConstraintsParamBuffer.SRV
-				, 0
-				, NumConstraints
-			);
-
-			NumConstraintsList[(uint32)Batch.Type] += NumConstraints;
+			// todo: 事实上顶点色的SRV不一定是准备好的，可能需要这时候去创建
+			Info.ColorBufferSRV = Proxy->ColorBufferSRV;
 		}
 
+		Info.LocalToWorld = Proxy->LocalToWorld;
+		Info.PhysicsProxy = Proxy;
+		Info.ConstraintsBatch = Batch;
+
+		AddGPUObject(Info);
+
+#if 0
+		for (int ElementIndex = 0; ElementIndex < NumConstraintTypes; ElementIndex++)
+		{
+			FConstraintsBatchElement& BatchElement = Batch.Elements[ElementIndex];
+
+			EConstraintType ConstraintType = BatchElement.Type;
+
+			if (BatchElement.ConstraintSourceType == EConstraintSourceType::Mesh) // 使用Mesh的Buffer创建约束	
+			{
+				int NumTriangles = Proxy->NumBufferElement;
+		
+				FShaderResourceViewRHIRef PositionBufferSRV = RHICreateShaderResourceView(Proxy->VertexBufferRHI, sizeof(float), PF_R32_FLOAT);
+
+				FGPUPhysicsObjectAllocInfo Info;
+				Info.Count = Proxy->NumVertices;
+				Info.Bitmask = 0;
+				Info.VertexBuffer = PositionBufferSRV;
+
+				FShaderResourceViewRHIRef IndexBufferSRV = RHICreateShaderResourceView(
+					Proxy->IndexBufferRHI
+					, Proxy->bIsIndexBuffer32 ? 4 : 2
+					, Proxy->bIsIndexBuffer32 ? PF_R32_UINT : PF_R16_UINT
+				);
+
+				Proxy->IndexBufferSRV = IndexBufferSRV;
+
+				if (ConstraintType == EConstraintType::Distance)
+				{
+					Info.ConstraintsBatch = BatchElement;
+					Info.IndexBufferRHI = Proxy->IndexBufferRHI;
+					Info.VertexBufferRHI = Proxy->VertexBufferRHI;
+					Info.ColorBufferSRV = Proxy->ColorBufferSRV;
+					Info.NumTriangles = NumTriangles;
+
+
+				}
+
+				Info.LocalToWorld = Proxy->LocalToWorld;
+				Info.PhysicsProxy = Proxy;
+
+				AddGPUObject(Info);
+			}
+			else
+			{
+				// 整型参数
+				uint32 NumUIntParam = BatchElement.UIntBuffer.Num();
+				void* WBuffer = RHILockBuffer(TempUIntConstraintsParamBuffer.Buffer, 0, NumUIntParam * sizeof(uint32), RLM_WriteOnly);
+				uint32* UIntBuffer = static_cast<uint32*>(WBuffer);
+
+				for (uint32 i = 0; i < NumUIntParam; i++)
+				{
+					uint32 Value = BatchElement.UIntBuffer[i];
+					UIntBuffer[i] = Value;
+				}
+
+				RHIUnlockBuffer(TempUIntConstraintsParamBuffer.Buffer);
+
+				// 浮点型参数
+				uint32 NumFloatParam = BatchElement.FloatBuffer.Num();
+				WBuffer = RHILockBuffer(TempFloatConstraintsParamBuffer.Buffer, 0, NumFloatParam * sizeof(float), RLM_WriteOnly);
+				float* FloatBuffer = static_cast<float*>(WBuffer);
+
+				for (uint32 i = 0; i < NumFloatParam; i++)
+				{
+					FloatBuffer[i] = BatchElement.FloatBuffer[i];
+				}
+
+				RHIUnlockBuffer(TempFloatConstraintsParamBuffer.Buffer);
+
+				GenerateDistanceConstraints(
+					RHICmdList
+					, DistanceConstraintsParticleAIDBuffer.UAV
+					, DistanceConstraintsParticleBIDBuffer.UAV
+					, DistanceConstraintsDistanceBuffer.UAV
+					, TempUIntConstraintsParamBuffer.SRV
+					, TempFloatConstraintsParamBuffer.SRV
+					, 0
+					, BatchElement.NumConstraints
+				);
+
+				NumConstraintsList[(uint32)BatchElement.Type] += BatchElement.NumConstraints;
+			}
+		}
+#endif
+		
 
 	}
+
+
 
 	// -------------- 处理碰撞 --------------
 	FYQCollisionInfo CollisionInfo;

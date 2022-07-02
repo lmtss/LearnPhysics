@@ -3,6 +3,7 @@
 enum class EConstraintType
 {
     Distance = 0,
+    DistanceBending,
     ShapeMatch,
     Num
 };

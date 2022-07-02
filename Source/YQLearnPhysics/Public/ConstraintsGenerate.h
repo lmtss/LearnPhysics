@@ -34,3 +34,18 @@ int GenerateDistanceConstraintsFromMesh(
     , uint32 OffsetParticles
     , bool bTest = false
 );
+
+
+int GenerateDistanceBendingConstraintsFromMesh(
+    FRHICommandList& RHICmdList
+    , FUnorderedAccessViewRHIRef ParticleA
+    , FUnorderedAccessViewRHIRef ParticleB
+    , FUnorderedAccessViewRHIRef DistanceBuffer
+    , FShaderResourceViewRHIRef IndexBuffer
+    , FShaderResourceViewRHIRef PositionBuffer
+    , FRHIShaderResourceView* ColorBuffer
+    , uint32 ConstraintsOffset
+    , uint32 NumTriangles
+    , uint32 OffsetParticles
+    , bool bTest = false
+);
