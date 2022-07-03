@@ -145,3 +145,29 @@ if (bIsCollis)
 
 这里一个尚未解决的问题是，如何对 "渲染线程写，game线程读"的方式进行同步。  
 
+# 场景管理
+我是打算将数据尽可能放到GPU上，不过现在欠缺些经验  
+## 物理代理
+我参考了UE中渲染使用的SceneProxy，写了这个PhysicsProxy  
+理想上，不同的组件可以实现自己的物理代理，通过实现下面的函数来得到不同的表现。不过现在还在研究当中      
+```cpp
+virtual void GetDynamicPhysicsConstraints(FConstraintsBatch& OutBatch) const {};
+virtual void GetCollisionInfo(FYQCollisionInfo& OutInfo) const {};
+```
+
+## 约束数据
+```cpp
+// 距离约束的Buffer
+// 粒子A的ID
+FRWBuffer DistanceConstraintsParticleAIDBuffer;
+// 粒子B的ID
+FRWBuffer DistanceConstraintsParticleBIDBuffer;
+// 距离Buffer
+FRWBuffer DistanceConstraintsDistanceBuffer;
+```  
+比较好理解，设计上里面的ID是封装的ID，里面的数据中几个bit存储这其他信息，比如是否是固定点，以此避免一个固定约束的pass。  
+不过可能真的实现一个固定约束的pass反而比较好吧。  
+
+## GPUObjectBuffer
+这个是完全没有用上的设计，比较遗憾。  
+本来是想走GPU Dirven，也就是用DispatchIndirect，所以想要维护一个Buffer来管理场景，但是还没想到合适的GPU Dirven思路。  
