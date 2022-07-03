@@ -317,6 +317,7 @@ private:
 	FRWBuffer CollisionParticleIDBuffer;
 	FRWBuffer CollisionErrorDistanceBuffer;
 
+	// todo: 改成StructuredBuffer
 	// 各种参数buffer
 	FRWBuffer PhysicsSceneViewBuffers[2];
 	int PhysicsSceneViewBufferPingPang = 0;

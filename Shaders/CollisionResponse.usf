@@ -75,13 +75,14 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
             ParticleOffset = Dir * (ModifyRadius - Dist);
             bIsCollis = 1;
 
-            NewParticleVelocity = ParticleOffset / DeltaTime;// +ParticleVelocity;
 
             float ParticlesMass = 1.0;
             float Coeff = 0.5;
-            //NewColliderVelocity = (ParticlesMass * ParticleVelocity + SphereMass * SphereVelocity - ParticlesMass * NewParticleVelocity) / SphereMass;
 
-            NewColliderVelocity = -ParticleOffset;
+            // 使用碰撞约束校正的位置delta来计算速度变化并不合适，改为用动量和动能守恒推导
+            //NewParticleVelocity = ParticleOffset / DeltaTime;// +ParticleVelocity;
+            //NewColliderVelocity = (ParticlesMass * ParticleVelocity + SphereMass * SphereVelocity - ParticlesMass * NewParticleVelocity) / SphereMass;
+            //NewColliderVelocity = -ParticleOffset;
 
             float3 ParticleVelocityNormal = dot(-Dir, ParticleVelocity)* (-Dir);
             float3 SphereVelocityNormal = dot(-Dir, SphereVelocity) * (-Dir);
@@ -106,27 +107,18 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
                 + (SphereMass - Coeff * ParticlesMass) * SphereVelocityNormal
                 ) / (SphereMass + ParticlesMass);
 
-            //NewParticleVelocity = NewVelocityParticle;
-            //NewColliderVelocity = -ParticleOffset / DeltaTime;
-            NewColliderVelocity = NewVelocityCollider - SphereVelocityNormal;
-            //NewColliderVelocity = NewVelocityCollider;
-            
+
+            NewColliderVelocity = NewVelocityCollider - SphereVelocityNormal;  
 
             // 惩罚力, 防止速度很小时的穿插
             /*float Distance = sqrt(DistSqr);
             float DistanceNeedMove = SphereRadius - Distance;
             float3 VelocityExtra = DistanceNeedMove * (-Dir) / DeltaTime;
+            */
 
-            NewColliderVelocity += VelocityExtra * 0.01;
-
-            NewParticleVelocity = -VelocityExtra + ParticleVelocity;
-            NewColliderVelocity = VelocityExtra * 0.0001;*/
-
-            //ParticleOffset = ParticleOffset * IterParams.x / IterParams.y;
             ParticlePosition = PredictPosition;
         }
 
-        //NewParticleVelocity += ParticleVelocity;
 
         if (IsFixed == 1) bIsCollis = 0;
     }

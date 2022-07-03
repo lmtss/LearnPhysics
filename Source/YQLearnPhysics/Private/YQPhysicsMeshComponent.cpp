@@ -316,7 +316,6 @@ UYQPhysicsMeshComponent::UYQPhysicsMeshComponent(const FObjectInitializer& Objec
 
 bool UYQPhysicsMeshComponent::ShouldCreateRenderState() const 
 {
-	UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::ShouldCreateRenderState"));
 	if (!Super::ShouldCreateRenderState()) {
 		UE_LOG(LogStaticMesh, Verbose, TEXT("ShouldCreateRenderState returned false for %s (Base class was false)"), *GetFullName());
 		return false;
@@ -377,7 +376,6 @@ bool UYQPhysicsMeshComponent::SetStaticMesh(UStaticMesh* NewMesh)
 
 void UYQPhysicsMeshComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) 	
 {
-	//UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::TickComponent"))
 	if (IsCreateRenderStatePending) 		
 	{
 		if (IsGPUPhysicsStateCreated() && IsRenderStateCreated())

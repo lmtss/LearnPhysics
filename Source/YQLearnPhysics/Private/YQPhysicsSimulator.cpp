@@ -6,71 +6,9 @@
 #include "MeshModify.h"
 #include "CollisionResponse.h"
 
-FYQPhysicsSimulator* FYQPhysicsSimulator::Instance = nullptr;
-
-void Initialize_RenderThread(FRHICommandListImmediate& RHICmdList)
-{
-	//FYQPhysicsScene* PhysicsScene = FYQPhysicsScene::Get();
-	////InitializeClothVertex(RHICmdList, PhysicsScene->GetPositionBuffer().UAV, PhysicsScene->GetOutputPositionBuffer().UAV, PhysicsScene->GetVertexMaskBuffer().UAV, 1024);
-	//CalcNormalByCrossPosition(RHICmdList, PhysicsScene->GetPositionBuffer().SRV, PhysicsScene->GetNormalBuffer().UAV, 0.5);
-	////InitializeClothIndexBuffer(RHICmdList, PhysicsScene->GetParticleIndexBuffer().UAV, 1922 * 3);
-	//
-	//InitializeDeltaBuffer_RenderThread(
-	//	RHICmdList
-	//	, PhysicsScene->GetAccumulateDeltaPositionXBuffer().UAV
-	//	, PhysicsScene->GetAccumulateDeltaPositionYBuffer().UAV
-	//	, PhysicsScene->GetAccumulateDeltaPositionZBuffer().UAV
-	//	, PhysicsScene->GetAccumulateCountBuffer().UAV
-	//	, 1024 * 1024
-	//);
-
-}
-
-void UYQPhysicsBlueprintLibrary::InitializeParticle() 
-{
-	/*FYQPhysicsScene* PhysicsScene = FYQPhysicsScene::Get();
-	PhysicsScene->Reset();
-
-	*/
-
-	/*ENQUEUE_RENDER_COMMAND(FYQPhysicsSceneProxy_Initialize)(
-		[](FRHICommandListImmediate& RHICmdList) {
-		Initialize_RenderThread(RHICmdList);
-	});*/
-}
-
-void UYQPhysicsBlueprintLibrary::OnEndPlay() 
-{
-	//FYQPhysicsScene* PhysicsScene = FYQPhysicsScene::Get();
-	//PhysicsScene->ClearConstraints();
-}
-
-int UYQPhysicsBlueprintLibrary::AddObjectToPhysicsScene()
-{
-	//return FYQPhysicsScene::Get()->AddCPUObject();
-	return 0;
-}
-
-FVector4 UYQPhysicsBlueprintLibrary::GetCPUObjectFeedback(int ObjectID)
-{
-	/*FYQPhysicsScene* Scene = FYQPhysicsScene::Get();
-	return Scene->GetCPUObjectFeedback(ObjectID);*/
-	return FVector4();
-}
-
-void UYQPhysicsBlueprintLibrary::SetCPUObjectPositionAndVelocity(int ObjectID, FVector4 PosAndRadius, FVector Velocity)
-{
-	/*FYQPhysicsScene* Scene = FYQPhysicsScene::Get();
-	Scene->SetCPUObjectPosition(ObjectID, PosAndRadius);*/
-}
-
-
-
-
 
 int UYQPhysicsBlueprintLibrary::AddStaticMeshActorToPhysicsScene(UStaticMeshComponent* StaticMeshComponent)
 {
-	//FYQPhysicsScene::Get()->AddStaticMeshToScene(StaticMeshComponent);
 	return 0;
 }
 
@@ -90,24 +28,21 @@ FYQPhysicsSimulator::~FYQPhysicsSimulator()
 }
 
 
-void Update_RenderThread(FRHICommandList& RHICmdList, FYQPhysicsScene* PhysicsScene)
-{
-
-
-	FGPUBvhBuffers& GPUBvhBuffers = PhysicsScene->GetGPUBvhBuffers();
-
-	/*GPUGenerateBVH_RenderThread(
-		RHICmdList
-		, PhysicsScene->GetPositionBuffer().SRV
-		, TriangleIndexBuffer.SRV
-		, GPUBvhBuffers
-		, PhysicsScene->GetPhysicsSceneViewBuffer()
-		, PhysicsScene->GetBoundingBox()
-		, PhysicsScene->GetNumStaticMeshTriangles()
-	);*/
-
-
-}
+//void Update_RenderThread(FRHICommandList& RHICmdList, FYQPhysicsScene* PhysicsScene)
+//{
+//
+//	FGPUBvhBuffers& GPUBvhBuffers = PhysicsScene->GetGPUBvhBuffers();
+//
+//	GPUGenerateBVH_RenderThread(
+//		RHICmdList
+//		, PhysicsScene->GetPositionBuffer().SRV
+//		, TriangleIndexBuffer.SRV
+//		, GPUBvhBuffers
+//		, PhysicsScene->GetPhysicsSceneViewBuffer()
+//		, PhysicsScene->GetBoundingBox()
+//		, PhysicsScene->GetNumStaticMeshTriangles()
+//	);
+//}
 
 void FYQPhysicsSimulator::Tick(float DeltaSeconds)
 {
@@ -283,6 +218,7 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 					, NumIters
 				);
 
+				// todo：测试是GPU上进行合并快还是cpu上合并快
 				// 只在最后一次
 				if (CollisIter == (NumIters - 1))// && IterSubStep == (NumSubSteps - 1))
 				{
@@ -307,12 +243,15 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 
 						RHIUnlockBuffer(FeedbackBuffer.Buffer);
 
+						// 实际上除以NumFeedBack没什么道理
 						//SumFeedBack = ColliderMass* (FeedBack / NumFeedBack - CPUObjectProxy->Velocity) / StepTime;
 
-						//SumFeedBack = FeedBack / NumFeedBack * 0.005 - CPUObjectProxy->Velocity;
-						SumFeedBack = FeedBack / NumFeedBack;// -CPUObjectProxy->Velocity;
 						SumFeedBack = FeedBack;
+
+						// 在shader中计算了当前速度的话，就不应该再减去了
 						//SumFeedBack -= CPUObjectProxy->Velocity;
+						
+						// 
 						//SumFeedBack += FVector(0, 0, 980 * DeltaSeconds);
 
 						/*UE_LOG(LogTemp, Log, TEXT("NaiveCollisionWithCollider (%f, %f, %f) (%f, %f, %f) NumFeedBack: %d")
@@ -332,6 +271,7 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 
 	}
 
+	// todo：换成在gamethread进行
 	for (int i = 0; i < CPUObjectProxyList.Num(); i++)
 	{
 		FCPUObjectProxy* CPUObjectProxy = CPUObjectProxyList[i];

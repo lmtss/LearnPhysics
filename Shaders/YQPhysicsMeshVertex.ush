@@ -67,6 +67,7 @@ FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput In
 	return Intermediates;
 }
 
+// 因为在计算物理时，位置已经是在世界空间的了，所以此处转为TranslatedWorld空间即可
 float4 CalcWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
 {
 	//return float4(Intermediates.Position + ResolvedView.PreViewTranslation.xyz, 1.0);

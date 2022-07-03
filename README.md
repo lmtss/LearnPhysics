@@ -1,5 +1,17 @@
 # 基于PBD的模拟的练习
-在UE上练习用GPU做物理模拟，尽可能不修改引擎，在插件中做全部，仍在施工中。     
+在UE上练习用GPU做物理模拟，尽可能不修改引擎，在插件中做全部，仍在施工中。   
+## todo
+- [x] 距离约束版的弯曲约束，参考chaos
+- [ ] 基于运动正交推导的弯曲约束，[参考](https://www.cs.ubc.ca/~rbridson/docs/cloth2003.pdf)
+- [ ] Long Range Attachments
+  - [ ] GPU上的Mesh Connected Component Label
+- [ ] 组件的PhysicsState的摧毁
+- [ ] 每个物体独立的重力参数
+- [ ] DispatchIndirect
+- [ ] 布料渲染时支持法线纹理
+  - [ ] 动态计算切线
+- [ ] 使用RDG重写
+  - [ ] 使用RDG实现一遍gpu radix sort
 # 模拟器类
 使用了UE提供的WorldSubSystem实现了两个生命周期托管到引擎的单例类，PhyscisScene
 和PhysicsSimulator，每一次tick时，PhyscisScene首先会整理各种Object的数据，遍历待加入到GPU场景的物体的列表，通过计算着色器将物体的数据写入到各种buffer中，比如位置buffer，同时根据需求产生约束。   
@@ -132,3 +144,4 @@ if (bIsCollis)
 
 
 这里一个尚未解决的问题是，如何对 "渲染线程写，game线程读"的方式进行同步。  
+

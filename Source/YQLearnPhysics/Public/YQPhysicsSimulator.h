@@ -25,20 +25,6 @@ class UYQPhysicsBlueprintLibrary : public UBlueprintFunctionLibrary {
 	GENERATED_BODY()
 
 public:
-	UFUNCTION(BlueprintCallable, Category = Particle)
-		static void InitializeParticle();
-
-	UFUNCTION(BlueprintCallable, Category = Particle)
-		static void OnEndPlay();
-
-	UFUNCTION(BlueprintCallable, Category = CPUObject)
-		static int AddObjectToPhysicsScene();
-
-	UFUNCTION(BlueprintCallable, Category = CPUObject)
-		static FVector4 GetCPUObjectFeedback(int ObjectID);
-
-	UFUNCTION(BlueprintCallable, Category = CPUObject)
-		static void SetCPUObjectPositionAndVelocity(int ObjectID, FVector4 PosAndRadius, FVector Velocity);
 
 	UFUNCTION(BlueprintCallable, Category = CPUObject)
 		static int AddStaticMeshActorToPhysicsScene(UStaticMeshComponent* StaticMeshComponent);
@@ -73,7 +59,6 @@ private:
 	
 
 	FYQPhysicsScene* Scene = nullptr;
-	static FYQPhysicsSimulator* Instance;
 
 	TSharedPtr<FYQPhysicsViewExtension, ESPMode::ThreadSafe> ViewExtension;
 };
