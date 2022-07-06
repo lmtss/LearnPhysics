@@ -3,6 +3,7 @@
 ## todo
 - [x] 距离约束版的弯曲约束，参考chaos
 - [ ] 基于运动正交推导的弯曲约束，[参考](https://www.cs.ubc.ca/~rbridson/docs/cloth2003.pdf)
+- [ ] 基于迭代次数和帧率的刚性计算，参考chaos
 - [ ] Long Range Attachments
   - [ ] GPU上的Mesh Connected Component Label
 - [ ] 组件的PhysicsState的摧毁
@@ -47,6 +48,16 @@
 现在增加了基于距离约束的弯曲约束，参考chaos的实现，简单地约束两个有共享边的三角中除了共享边以外的两点的距离。   
 
 生成弯曲约束的算法和生成距离约束类似，区别在于这一次是寻找那个重复的，也就是说，如果左边的数据和自己相同，则为1，和距离约束的情况相反。当一个边的标识为1时，就将自己所在的三角形的id和buffer中左侧的边的三角形id输出，这样就找到了两个有共享边的三角形。  
+
+## 基于角度的弯曲约束
+参考的是chaos使用的方法，是一篇03年的[文章](https://www.cs.ubc.ca/~rbridson/docs/cloth2003.pdf)。  
+
+![弯曲约束](Img/BendingConstraint-Figure-1.png)  
+
+![弯曲约束](Img/BendingConstraint-Algo.png)   
+
+这篇文章的思路并非对约束求梯度，而是基于运动的正交性，来推导出弯曲运动的运动模式，最后得到上面的公式。当前我的实现还有些bug，明显的不稳定。
+
 
 # SceneComponent
 有了网格体资源之后，场景中用自定义的PrimitiveComponent来显示模拟的物体，自定义vertexfactory来fetch模拟出的顶点位置和法线，这可能带来大量的shader编译 (也是我开发时的困扰点，这很浪费时间)。   

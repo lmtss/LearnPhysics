@@ -220,3 +220,102 @@ void InitializeDeltaBuffer_RenderThread(
 	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
 	UnsetShaderUAVs(RHICmdList, ComputeShader, ComputeShader.GetComputeShader());
 }
+
+
+
+
+
+
+
+
+
+
+
+class FYQProjectPBDBendingConstraintCS : public FGlobalShader
+{
+public:
+	DECLARE_SHADER_TYPE(FYQProjectPBDBendingConstraintCS, Global);
+	SHADER_USE_PARAMETER_STRUCT(FYQProjectPBDBendingConstraintCS, FGlobalShader);
+
+	static constexpr uint32 ThreadGroupSize = 32;
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_SRV(Buffer<uint>, ParticleABuffer)
+		SHADER_PARAMETER_SRV(Buffer<uint>, ParticleBBuffer)
+		SHADER_PARAMETER_SRV(Buffer<uint>, ParticleCBuffer)
+		SHADER_PARAMETER_SRV(Buffer<uint>, ParticleDBuffer)
+		SHADER_PARAMETER_SRV(Buffer<half>, AngleBuffer)
+		SHADER_PARAMETER_SRV(Buffer<float4>, ParticlePositionBuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<int>, AccumulateDeltaPositionXBuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<int>, AccumulateDeltaPositionYBuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<int>, AccumulateDeltaPositionZBuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<uint>, AccumulateCountBuffer)
+		SHADER_PARAMETER(uint32, ConstraintOffset)
+		SHADER_PARAMETER(uint32, NumConstraints)
+		SHADER_PARAMETER(float, DeltaTime)
+		SHADER_PARAMETER(float, InvIterCount)
+		END_SHADER_PARAMETER_STRUCT()
+
+public:
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::ES3_1);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("BENDING_CONSTRAINT"), 1);
+		OutEnvironment.SetDefine(TEXT("THREAD_COUNT"), ThreadGroupSize);
+		//OutEnvironment.CompilerFlags.Add(CFLAG_AllowTypedUAVLoads);
+	}
+
+};
+
+IMPLEMENT_SHADER_TYPE(, FYQProjectPBDBendingConstraintCS, TEXT("/YQLearnPhysics/PBDSimCS.usf"), TEXT("MainCS"), SF_Compute);
+
+void SolvePBDBendingConstraint_RenderThread(
+	FRHICommandList& RHICmdList
+	, FShaderResourceViewRHIRef ParticleABuffer
+	, FShaderResourceViewRHIRef ParticleBBuffer
+	, FShaderResourceViewRHIRef ParticleCBuffer
+	, FShaderResourceViewRHIRef ParticleDBuffer
+	, FShaderResourceViewRHIRef AngleBuffer
+	, FShaderResourceViewRHIRef ParticlePositionBuffer
+	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionXBuffer
+	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionYBuffer
+	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionZBuffer
+	, FUnorderedAccessViewRHIRef AccumulateCountBuffer
+	, uint32 NumConstraints
+	, float DeltaTime
+	, float InvIterCount
+)
+{
+	SCOPED_DRAW_EVENT(RHICmdList, SolvePBDBendingConstraint);
+
+	TShaderMapRef<FYQProjectPBDBendingConstraintCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	RHICmdList.SetComputeShader(ComputeShader.GetComputeShader());
+
+	const uint32 NumThreadGroups = FMath::DivideAndRoundUp(NumConstraints, FYQProjectPBDBendingConstraintCS::ThreadGroupSize);
+
+	FYQProjectPBDBendingConstraintCS::FParameters PassParameters;
+	PassParameters.ParticleABuffer = ParticleABuffer;
+	PassParameters.ParticleBBuffer = ParticleBBuffer;
+	PassParameters.ParticleCBuffer = ParticleCBuffer;
+	PassParameters.ParticleDBuffer = ParticleDBuffer;
+	PassParameters.AngleBuffer = AngleBuffer;
+	PassParameters.ParticlePositionBuffer = ParticlePositionBuffer;
+	PassParameters.AccumulateDeltaPositionXBuffer = AccumulateDeltaPositionXBuffer;
+	PassParameters.AccumulateDeltaPositionYBuffer = AccumulateDeltaPositionYBuffer;
+	PassParameters.AccumulateDeltaPositionZBuffer = AccumulateDeltaPositionZBuffer;
+	PassParameters.AccumulateCountBuffer = AccumulateCountBuffer;
+	PassParameters.ConstraintOffset = 0;
+	PassParameters.NumConstraints = NumConstraints;
+	PassParameters.DeltaTime = DeltaTime;
+	PassParameters.InvIterCount = InvIterCount;
+
+	//RHICmdList.Transition(FRHITransitionInfo(ParticleABuffer, ERHIAccess::Unknown, ERHIAccess::UAVCompute));
+	SetShaderParameters(RHICmdList, ComputeShader, ComputeShader.GetComputeShader(), PassParameters);
+	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
+	UnsetShaderUAVs(RHICmdList, ComputeShader, ComputeShader.GetComputeShader());
+}

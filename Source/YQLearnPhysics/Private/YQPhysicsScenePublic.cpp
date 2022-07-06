@@ -116,6 +116,31 @@ FRWBuffer& FYQPhysicsScene::GetOrignalPositionBuffer()
 	return OrignalPositionBuffer;
 }
 
+FRWBuffer& FYQPhysicsScene::GetBendingConstraintsParticleAIDBuffer()
+{
+	return BendingConstraintsParticleAIDBuffer;
+}
+
+FRWBuffer& FYQPhysicsScene::GetBendingConstraintsParticleBIDBuffer()
+{
+	return BendingConstraintsParticleBIDBuffer;
+}
+
+FRWBuffer& FYQPhysicsScene::GetBendingConstraintsParticleCIDBuffer()
+{
+	return BendingConstraintsParticleCIDBuffer;
+}
+
+FRWBuffer& FYQPhysicsScene::GetBendingConstraintsParticleDIDBuffer()
+{
+	return BendingConstraintsParticleDIDBuffer;
+}
+
+FRWBuffer& FYQPhysicsScene::GetBendingConstraintsAngleBuffer()
+{
+	return BendingConstraintsAngleBuffer;
+}
+
 void FYQPhysicsScene::Tick(FRHICommandList& RHICmdList)
 {
 	check(IsInRenderingThread());

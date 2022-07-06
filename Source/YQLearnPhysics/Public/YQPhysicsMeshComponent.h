@@ -17,6 +17,7 @@ public:
 private:
 
 	uint8 bUseBendingConstraints : 1;
+	uint8 bUseDistanceBendingConstraints : 1;
 };
 
 /**
@@ -46,6 +47,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Cloth)
 		uint8 bUseBendingConstraints : 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Cloth)
+		uint8 bUseDistanceBendingConstraints : 1;
 
 
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;

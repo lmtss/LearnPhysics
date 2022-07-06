@@ -787,3 +787,185 @@ int GenerateDistanceBendingConstraintsFromMesh(
 
 	return NumUniqueConstraints;
 }
+
+
+
+// 根据两个有共享边的三角形，产生弯曲约束
+// 参考UE的chaos
+class FYQGenerateBendingConstraintsCS : public FGlobalShader
+{
+public:
+	DECLARE_SHADER_TYPE(FYQGenerateBendingConstraintsCS, Global);
+	SHADER_USE_PARAMETER_STRUCT(FYQGenerateBendingConstraintsCS, FGlobalShader);
+
+	static constexpr uint32 ThreadGroupSize = 64;
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_SRV(Buffer<uint>, IndexBuffer)
+		SHADER_PARAMETER_SRV(Buffer<uint>, CombinedTriangleIDBuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<uint>, ConstraintsParticleABuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<uint>, ConstraintsParticleBBuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<uint>, ConstraintsParticleCBuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<uint>, ConstraintsParticleDBuffer)
+		SHADER_PARAMETER_UAV(RWBuffer<half>, AngleBuffer)
+		SHADER_PARAMETER_SRV(Buffer<float>, PositionBuffer)
+		SHADER_PARAMETER_SRV(Buffer<float>, ColorBuffer)
+		SHADER_PARAMETER(uint32, NumConstraints)
+		SHADER_PARAMETER(uint32, OffsetConstraints)
+		SHADER_PARAMETER(uint32, OffsetParticles)
+		END_SHADER_PARAMETER_STRUCT()
+
+public:
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::ES3_1);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("GENERATE_BENDING_CONSTRAINTS"), 1);
+		OutEnvironment.SetDefine(TEXT("THREAD_COUNT"), ThreadGroupSize);
+		//OutEnvironment.CompilerFlags.Add(CFLAG_AllowTypedUAVLoads);
+	}
+
+};
+
+IMPLEMENT_SHADER_TYPE(, FYQGenerateBendingConstraintsCS, TEXT("/YQLearnPhysics/ConstraintsGenerate.usf"), TEXT("MainCS"), SF_Compute);
+
+
+void GenerateBendingConstraints(
+	FRHICommandList& RHICmdList
+	, FShaderResourceViewRHIRef IndexBuffer
+	, FShaderResourceViewRHIRef CombinedTriangleIDBuffer
+	, FShaderResourceViewRHIRef PositionBuffer
+	, FUnorderedAccessViewRHIRef AngleBuffer
+	, FUnorderedAccessViewRHIRef IDBufferA
+	, FUnorderedAccessViewRHIRef IDBufferB
+	, FUnorderedAccessViewRHIRef IDBufferC
+	, FUnorderedAccessViewRHIRef IDBufferD
+	, FRHIShaderResourceView* ColorBuffer
+	, uint32 NumConstraints
+	, uint32 OffsetConstraints
+	, uint32 OffsetParticles
+)
+{
+	SCOPED_DRAW_EVENT(RHICmdList, GenerateDistanceBendingConstraints);
+
+	TShaderMapRef<FYQGenerateBendingConstraintsCS> CS(GetGlobalShaderMap(GMaxRHIFeatureLevel));
+	RHICmdList.SetComputeShader(CS.GetComputeShader());
+
+	uint32 NumThreadGroups = FMath::DivideAndRoundUp(NumConstraints, FYQGenerateBendingConstraintsCS::ThreadGroupSize);
+
+	FYQGenerateBendingConstraintsCS::FParameters PassParameters;
+	PassParameters.ConstraintsParticleABuffer = IDBufferA;
+	PassParameters.ConstraintsParticleBBuffer = IDBufferB;
+	PassParameters.ConstraintsParticleCBuffer = IDBufferC;
+	PassParameters.ConstraintsParticleDBuffer = IDBufferD;
+	PassParameters.AngleBuffer = AngleBuffer;
+	PassParameters.PositionBuffer = PositionBuffer;
+	PassParameters.IndexBuffer = IndexBuffer;
+	PassParameters.ColorBuffer = ColorBuffer;
+	PassParameters.CombinedTriangleIDBuffer = CombinedTriangleIDBuffer;
+	PassParameters.NumConstraints = NumConstraints;
+	PassParameters.OffsetConstraints = OffsetConstraints;
+	PassParameters.OffsetParticles = OffsetParticles;
+
+	SetShaderParameters(RHICmdList, CS, CS.GetComputeShader(), PassParameters);
+	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
+	UnsetShaderUAVs(RHICmdList, CS, CS.GetComputeShader());
+}
+
+int GenerateBendingConstraintsFromMesh(
+	FRHICommandList& RHICmdList
+	, FUnorderedAccessViewRHIRef ParticleA
+	, FUnorderedAccessViewRHIRef ParticleB
+	, FUnorderedAccessViewRHIRef ParticleC
+	, FUnorderedAccessViewRHIRef ParticleD
+	, FUnorderedAccessViewRHIRef AngleBuffer
+	, FShaderResourceViewRHIRef IndexBuffer
+	, FShaderResourceViewRHIRef PositionBuffer
+	, FRHIShaderResourceView* ColorBuffer
+	, uint32 ConstraintsOffset
+	, uint32 NumTriangles
+	, uint32 OffsetParticles
+)
+{
+	uint32 MaxKeyBufferLength = 1 << 20;
+	if (ConstraintKeyBuffers[0].SRV == nullptr)
+	{
+		ConstraintKeyBuffers[0].Initialize(TEXT("ConstraintKeyBuffer-0"), sizeof(uint32), MaxKeyBufferLength, EPixelFormat::PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+		ConstraintKeyBuffers[1].Initialize(TEXT("ConstraintKeyBuffer-1"), sizeof(uint32), MaxKeyBufferLength, EPixelFormat::PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+		GlobalOffsetBuffer.Initialize(TEXT("GlobalOffsetBuffer"), sizeof(uint32), 1, EPixelFormat::PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+	}
+
+	if (ConstraintTriangleIndexBuffer[0].SRV == nullptr)
+	{
+		ConstraintTriangleIndexBuffer[0].Initialize(TEXT("TriangleIndexBuffer-0"), sizeof(uint32), MaxKeyBufferLength, EPixelFormat::PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+		ConstraintTriangleIndexBuffer[1].Initialize(TEXT("TriangleIndexBuffer-1"), sizeof(uint32), MaxKeyBufferLength, EPixelFormat::PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+	}
+
+	YQInitializeSizeBuffer(RHICmdList, GlobalOffsetBuffer.UAV, 1, 0);
+
+	GenerateBendingConstraintsKeyAndTriangleIndexFromMesh(RHICmdList, IndexBuffer, ConstraintKeyBuffers[0].UAV, ConstraintTriangleIndexBuffer[0].UAV, NumTriangles);
+
+	FGPUSortBuffers GPUSortBuffers;
+	GPUSortBuffers.RemoteKeySRVs[0] = ConstraintKeyBuffers[0].SRV;
+	GPUSortBuffers.RemoteKeySRVs[1] = ConstraintKeyBuffers[1].SRV;
+	GPUSortBuffers.RemoteKeyUAVs[0] = ConstraintKeyBuffers[0].UAV;
+	GPUSortBuffers.RemoteKeyUAVs[1] = ConstraintKeyBuffers[1].UAV;
+	GPUSortBuffers.RemoteValueSRVs[0] = ConstraintTriangleIndexBuffer[0].SRV;
+	GPUSortBuffers.RemoteValueSRVs[1] = ConstraintTriangleIndexBuffer[1].SRV;
+	GPUSortBuffers.RemoteValueUAVs[0] = ConstraintTriangleIndexBuffer[0].UAV;
+	GPUSortBuffers.RemoteValueUAVs[1] = ConstraintTriangleIndexBuffer[1].UAV;
+
+	int32 BufferIndex = SortGPUBuffers(
+		RHICmdList
+		, GPUSortBuffers
+		, 0
+		, 0xFFFFFFFF
+		, NumTriangles * 3
+		, ERHIFeatureLevel::SM5
+	);
+
+	YQInitializeSizeBuffer(RHICmdList, ConstraintKeyBuffers[1 - BufferIndex].UAV, NumTriangles * 4, 0);
+
+	CalcBendingConstraintsTriangleIndex(
+		RHICmdList
+		, ConstraintKeyBuffers[BufferIndex].SRV
+		, ConstraintTriangleIndexBuffer[BufferIndex].SRV
+		, ConstraintTriangleIndexBuffer[1 - BufferIndex].UAV
+		, GlobalOffsetBuffer.UAV
+		, 0
+		, NumTriangles * 3
+	);
+
+	void* ReadPtr = RHILockBuffer(GlobalOffsetBuffer.Buffer, 0, sizeof(uint32), EResourceLockMode::RLM_ReadOnly);
+
+	uint32* ReadPtr32 = (uint32*)ReadPtr;
+	uint32 NumUniqueConstraints = ReadPtr32[0];
+
+	RHIUnlockBuffer(GlobalOffsetBuffer.Buffer);
+
+	{
+		BufferIndex = 1 - BufferIndex;
+	}
+
+	GenerateBendingConstraints(
+		RHICmdList
+		, IndexBuffer
+		, ConstraintTriangleIndexBuffer[BufferIndex].SRV
+		, PositionBuffer
+		, AngleBuffer
+		, ParticleA
+		, ParticleB
+		, ParticleC
+		, ParticleD
+		, ColorBuffer
+		, NumUniqueConstraints
+		, ConstraintsOffset
+		, OffsetParticles
+	);
+
+	return NumUniqueConstraints;
+}

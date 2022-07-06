@@ -90,3 +90,46 @@ uint GetOffsetNumObjects()
 {
     return 3;
 }
+
+
+
+// ---- 常用运算
+float3 YQSafeNormalize(float3 V)
+{
+#define SAFE_NORMALIZE_TOLERANCE (1.e-4f)
+
+	float LenSqr = dot(V, V);
+	
+	if(LenSqr < SAFE_NORMALIZE_TOLERANCE)
+	{
+		return V;
+	}
+	else
+	{
+		return normalize(V);
+	}
+}
+
+//float3 YQSafeDivide(float3 Numerator, float Denominator)
+//{
+//	if (Denominator > 1e-7)
+//		return Numerator / Denominator;
+//
+//	return float3(0, 0, 0);
+//}
+
+float YQGetAngle(float3 P1, float3 P2, float3 P3, float3 P4)
+{
+	float3 Normal1 = YQSafeNormalize(cross(P3 - P1, P3 - P2));
+	float3 Normal2 = YQSafeNormalize(cross(P4 - P2, P4 - P1));
+	float DotN = dot(Normal1, Normal2);
+	return acos(clamp(DotN, -1, 1));
+	//return acos(clamp(DotN, 1e-4, 1 - 1e-4));
+}
+
+float YQGetAngle(float3 Normal1, float3 Normal2)
+{
+	float DotN = dot(Normal1, Normal2);
+	return acos(clamp(DotN, -1, 1));
+	//return acos(clamp(DotN, 1e-4, 1 - 1e-4));	为什么？
+}

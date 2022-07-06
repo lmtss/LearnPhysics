@@ -59,6 +59,12 @@ void FYQPhysicsScene::InitResource()
 	DistanceConstraintsParticleBIDBuffer.Initialize(TEXT("DistanceConstraintsParticleBIDBuffer"), sizeof(uint32), NumMaxConstraints, PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
 	DistanceConstraintsDistanceBuffer.Initialize(TEXT("DistanceConstraintsDistanceBuffer"), sizeof(float), NumMaxConstraints, PF_R32_FLOAT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
 
+	BendingConstraintsParticleAIDBuffer.Initialize(TEXT("BendingConstraintsParticleAIDBuffer"), sizeof(uint32), NumMaxConstraints, PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+	BendingConstraintsParticleBIDBuffer.Initialize(TEXT("BendingConstraintsParticleBIDBuffer"), sizeof(uint32), NumMaxConstraints, PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+	BendingConstraintsParticleCIDBuffer.Initialize(TEXT("BendingConstraintsParticleCIDBuffer"), sizeof(uint32), NumMaxConstraints, PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+	BendingConstraintsParticleDIDBuffer.Initialize(TEXT("BendingConstraintsParticleDIDBuffer"), sizeof(uint32), NumMaxConstraints, PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+	BendingConstraintsAngleBuffer.Initialize(TEXT("BendingConstraintsAngleBuffer"), sizeof(FFloat16), NumMaxConstraints, PF_R16F, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+
 	// 碰撞
 	CollisionParticleIDBuffer.Initialize(TEXT("CollisionParticleIDBuffer"), sizeof(uint32), NumMaxCollisionConstraints, PF_R32_UINT, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
 	CollisionErrorDistanceBuffer.Initialize(TEXT("CollisionErrorDistanceBuffer"), sizeof(FFloat16Color), NumMaxCollisionConstraints, PF_FloatRGBA, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
@@ -136,7 +142,8 @@ bool FYQPhysicsScene::AllocImmediate(FRHICommandListImmediate& RHICmdList, uint3
 
 FYQPhysicsScene::FYQPhysicsScene()
 {
-	
+	NumParticlesFromGPU = 0;
+
 	NumConstraintsList.Init(0, (int)EConstraintType::Num);
 	ProxyList.Reset(0);
 
@@ -154,49 +161,7 @@ FYQPhysicsScene::FYQPhysicsScene()
 
 void FYQPhysicsScene::ReleaseResource()
 {
-	// 看起来是不需要自己Release的，因为FRWBuffer析构的时候会自己Release
-#if 0
-	VertexMaskBuffer.Release();
-	PositionBufferA.Release();
-	PositionBufferB.Release();
-	IndexBuffer.Release();
-	VelocityBuffer.Release();
-	NormalBuffer.Release();
-	FeedbackBuffer.Release();
-	FeedbackBufferSizes.Release();
 
-	TempUIntConstraintsParamBuffer.Release();
-	TempFloatConstraintsParamBuffer.Release();
-
-	AccumulateDeltaPositionXBuffer.Release();
-	AccumulateDeltaPositionYBuffer.Release();
-	AccumulateDeltaPositionZBuffer.Release();
-	AccumulateCountBuffer.Release();
-
-	DistanceConstraintsParticleAIDBuffer.Release();
-	DistanceConstraintsParticleBIDBuffer.Release();
-	DistanceConstraintsDistanceBuffer.Release();
-	
-	CollisionParticleIDBuffer.Release();
-	CollisionErrorDistanceBuffer.Release();
-
-	PhysicsSceneViewBuffer.Release();
-	VisualizeNodeIDBuffer.Release();
-	IndirectArgBuffer.Release();
-
-	GPUBvhBuffers.AtomicAccessBuffer.Release();
-	GPUBvhBuffers.BVHParentIDBuffer.Release();
-	GPUBvhBuffers.InternalNodeRangeBuffer.Release();
-	GPUBvhBuffers.MortonCodeBuffers[0].Release();
-	GPUBvhBuffers.MortonCodeBuffers[1].Release();
-	GPUBvhBuffers.BVHChildIDBuffer.Release();
-	GPUBvhBuffers.BVPositionBufferA[0].Release();
-	GPUBvhBuffers.BVPositionBufferA[1].Release();
-	GPUBvhBuffers.BVPositionBufferB[0].Release();
-	GPUBvhBuffers.BVPositionBufferB[1].Release();
-	GPUBvhBuffers.KeyDeltaBuffer.Release();
-
-#endif
 
 	ENQUEUE_RENDER_COMMAND(ReleaseResource)(
 		[&](FRHICommandListImmediate& RHICmdList) {
@@ -528,7 +493,7 @@ void FYQPhysicsScene::InitializeBuffer(FRHICommandList& RHICmdList)
 
 void FYQPhysicsScene::CopyDataToCPU(FRHICommandList& RHICmdList)
 {
-	CopyDataToCPUBuffer_RenderThread(
+	/*CopyDataToCPUBuffer_RenderThread(
 		RHICmdList
 		, PhysicsSceneViewBuffers[PhysicsSceneViewBufferPingPang].SRV
 		, PerFrameToCPUBuffer.UAV
@@ -538,7 +503,7 @@ void FYQPhysicsScene::CopyDataToCPU(FRHICommandList& RHICmdList)
 	uint32* ReadPtr = (uint32*)Buffer;
 	NumParticlesFromGPU = ReadPtr[0];
 
-	PerFrameToCPUBuffer.Unlock();
+	PerFrameToCPUBuffer.Unlock();*/
 }
 
 void FYQPhysicsScene::AddGPUObject(FGPUPhysicsObjectAllocInfo& Info)
@@ -569,6 +534,8 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 		UIntBuffer[i * NumIntegerPerObject + 1] = Value;
 		SumParticles += Value;
 	}
+
+	
 
 	UE_LOG(LogTemp, Log, TEXT("FYQPhysicsScene::AddGPUObjectToBuffer %d"), SumParticles);
 
@@ -632,11 +599,12 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 		
 	}
 
-	
+	NumParticlesFromGPU += SumParticles;
 
 	// 添加约束
 	uint32 NumDistanceConstraintsInScene = NumConstraintsList[(int)EConstraintType::Distance];
 	uint32 NumDistanceBendingConstraintsInScene = NumConstraintsList[(int)EConstraintType::DistanceBending];
+	uint32 NumBendingConstraintsInScene = NumConstraintsList[(int)EConstraintType::Bending];
 
 	for (int i = 0; i < NumObject; i++)
 	{
@@ -695,16 +663,34 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 					NumDistanceConstraintsInScene += NumConstraintsNew;
 				}
 			}
+			else if (ConstraintType == EConstraintType::Bending)
+			{
+				if (ConstraintSourceType == EConstraintSourceType::Mesh)
+				{
+					int NumConstraintsNew = GenerateBendingConstraintsFromMesh(
+						RHICmdList
+						, BendingConstraintsParticleAIDBuffer.UAV
+						, BendingConstraintsParticleBIDBuffer.UAV
+						, BendingConstraintsParticleCIDBuffer.UAV
+						, BendingConstraintsParticleDIDBuffer.UAV
+						, BendingConstraintsAngleBuffer.UAV
+						, Info.IndexBufferSRV
+						, Info.VertexBuffer
+						, Info.ColorBufferSRV
+						, NumBendingConstraintsInScene
+						, Info.NumTriangles
+						, PhysicsProxy->BufferIndexOffset
+					);
+
+					NumBendingConstraintsInScene += NumConstraintsNew;
+				}
+			}
 		}
-
-		
-		uint64 PtrForLog = (uint64)Info.PhysicsProxy;
-
-		UE_LOG(LogTemp, Log, TEXT("AddGPUObjectToBuffer  PtrForLog: %d   %d    %d "), PtrForLog, NumConstraintTypes, Info.PhysicsProxy->BufferIndexOffset);
 	}
 
 	NumConstraintsList[(int)EConstraintType::Distance] = NumDistanceConstraintsInScene;
 	NumConstraintsList[(int)EConstraintType::DistanceBending] = NumDistanceBendingConstraintsInScene;
+	NumConstraintsList[(int)EConstraintType::Bending] = NumBendingConstraintsInScene;
 
 	WaitingObjectList.Reset(0);
 }
@@ -741,7 +727,7 @@ void FYQPhysicsScene::AddPhysicsProxyToScene_RenderThread(FRHICommandList& RHICm
 
 			// 距离约束这样的情况，需要用网格中的顶点来计算，所以是true
 			// 如果是shape match这种，则是用生成的体素来计算，所以是false
-			if (ConstraintType == EConstraintType::Distance || ConstraintType == EConstraintType::DistanceBending)
+			if (ConstraintType == EConstraintType::Distance || ConstraintType == EConstraintType::DistanceBending || ConstraintType == EConstraintType::Bending)
 			{
 				bNeedCopyVertex = true;
 				bNeedVertexColorBuffer = true;

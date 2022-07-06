@@ -104,6 +104,12 @@ public:
 	FRWBuffer& GetDistanceConstraintsParticleBIDBuffer();
 	FRWBuffer& GetDistanceConstraintsDistanceBuffer();
 
+	FRWBuffer& GetBendingConstraintsParticleAIDBuffer();
+	FRWBuffer& GetBendingConstraintsParticleBIDBuffer();
+	FRWBuffer& GetBendingConstraintsParticleCIDBuffer();
+	FRWBuffer& GetBendingConstraintsParticleDIDBuffer();
+	FRWBuffer& GetBendingConstraintsAngleBuffer();
+
 	FRWBuffer& GetVisualizeBVHNodeBuffer();
 	FRWBuffer& GetIndirectArgBuffer();
 
@@ -311,6 +317,15 @@ private:
 	FRWBuffer DistanceConstraintsParticleBIDBuffer;
 	// 距离Buffer
 	FRWBuffer DistanceConstraintsDistanceBuffer;
+
+	// 弯曲约束
+	// 此处的ABCD顺序对应的是chaos的顺序，也是06年PBD论文的顺序
+	FRWBuffer BendingConstraintsParticleAIDBuffer;
+	FRWBuffer BendingConstraintsParticleBIDBuffer;
+	FRWBuffer BendingConstraintsParticleCIDBuffer;
+	FRWBuffer BendingConstraintsParticleDIDBuffer;
+	FRWBuffer BendingConstraintsAngleBuffer;
+
 
 	// 碰撞约束的Buffer
 	// 

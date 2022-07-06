@@ -40,6 +40,23 @@ void InitializeDeltaBuffer_RenderThread(
 	, uint32 NumParticle
 );
 
+void SolvePBDBendingConstraint_RenderThread(
+	FRHICommandList& RHICmdList
+	, FShaderResourceViewRHIRef ParticleABuffer
+	, FShaderResourceViewRHIRef ParticleBBuffer
+	, FShaderResourceViewRHIRef ParticleCBuffer
+	, FShaderResourceViewRHIRef ParticleDBuffer
+	, FShaderResourceViewRHIRef AngleBuffer
+	, FShaderResourceViewRHIRef ParticlePositionBuffer
+	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionXBuffer
+	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionYBuffer
+	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionZBuffer
+	, FUnorderedAccessViewRHIRef AccumulateCountBuffer
+	, uint32 NumConstraints
+	, float DeltaTime
+	, float InvIterCount
+);
+
 
 void SimpleSphereCollisionDetect_RenderThread(
 	FRHICommandList& RHICmdList

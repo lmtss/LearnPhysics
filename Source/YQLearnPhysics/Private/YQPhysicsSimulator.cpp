@@ -91,6 +91,12 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 	FRWBuffer& DistanceConstraintsParticleBIDBuffer = PhysicsScene->GetDistanceConstraintsParticleBIDBuffer();
 	FRWBuffer& DistanceConstraintsDistanceBuffer = PhysicsScene->GetDistanceConstraintsDistanceBuffer();
 
+	FRWBuffer& BendingConstraintsParticleAIDBuffer = PhysicsScene->GetBendingConstraintsParticleAIDBuffer();
+	FRWBuffer& BendingConstraintsParticleBIDBuffer = PhysicsScene->GetBendingConstraintsParticleBIDBuffer();
+	FRWBuffer& BendingConstraintsParticleCIDBuffer = PhysicsScene->GetBendingConstraintsParticleCIDBuffer();
+	FRWBuffer& BendingConstraintsParticleDIDBuffer = PhysicsScene->GetBendingConstraintsParticleDIDBuffer();
+	FRWBuffer& BendingConstraintsAngleBuffer = PhysicsScene->GetBendingConstraintsAngleBuffer();
+
 	FRWBuffer& PredictPositionBuffer = PhysicsScene->GetPredictPositionBuffer();
 	FRWBuffer& OrignalPositionBuffer = PhysicsScene->GetOrignalPositionBuffer();
 
@@ -106,6 +112,7 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 	);
 
 	uint32 NumDistanceConstraints = PhysicsScene->GetNumConstraints(EConstraintType::Distance);
+	uint32 NumBendingConstraints = PhysicsScene->GetNumConstraints(EConstraintType::Bending);
 	
 	TArray< FCPUObjectProxy*>& CPUObjectProxyList = PhysicsScene->GetCPUObjectProxyList();
 	TArray< FVector> AccFeedBacks;
@@ -162,6 +169,23 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 				, AccumulateDeltaPositionZBuffer.UAV
 				, AccumulateCountBuffer.UAV
 				, NumDistanceConstraints
+				, SubstepTime
+				, 1.0 / (float)NumIters
+			);
+
+			SolvePBDBendingConstraint_RenderThread(
+				RHICmdList
+				, BendingConstraintsParticleAIDBuffer.SRV
+				, BendingConstraintsParticleBIDBuffer.SRV
+				, BendingConstraintsParticleCIDBuffer.SRV
+				, BendingConstraintsParticleDIDBuffer.SRV
+				, BendingConstraintsAngleBuffer.SRV
+				, PhysicsScene->GetPositionBuffer().SRV
+				, AccumulateDeltaPositionXBuffer.UAV
+				, AccumulateDeltaPositionYBuffer.UAV
+				, AccumulateDeltaPositionZBuffer.UAV
+				, AccumulateCountBuffer.UAV
+				, NumBendingConstraints
 				, SubstepTime
 				, 1.0 / (float)NumIters
 			);

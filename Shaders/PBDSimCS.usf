@@ -59,11 +59,13 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
     float4 PositionA = ParticlePositionBuffer[ParticleIDA];
     float4 PositionB = ParticlePositionBuffer[ParticleIDB];
 
+    float Stiffness = 1.0 * InvIterCount;
+
     float3 BToA = (PositionA - PositionB).xyz;
     float Distance = dot(BToA, BToA);
     Distance = sqrt(Distance);
     float3 Dir = BToA / Distance;
-    float3 DeltaA = -0.5 * (Distance - StaticDistance) * Dir;// *InvIterCount;
+    float3 DeltaA = -0.5 * (Distance - StaticDistance) * Dir * Stiffness;// *InvIterCount;
     float3 DeltaB = -DeltaA;
 
     //DeltaA *= 0.00001;
@@ -122,11 +124,11 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
 
     float3 DeltaPosition = float3(DeltaPosX, DeltaPosY, DeltaPosZ);
 
-    if(Count != 0)
+    /*if(Count != 0)
     {
         float CountF = (float)Count;
         DeltaPosition = DeltaPosition / CountF;
-    }
+    }*/
     
     float3 Velocity = DeltaPosition / DeltaTime;
 
@@ -139,6 +141,174 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
     AccumulateDeltaPositionXBuffer[ParticleID] = 0;
     AccumulateDeltaPositionYBuffer[ParticleID] = 0;
     AccumulateDeltaPositionZBuffer[ParticleID] = 0;
+}
+
+#endif
+
+
+
+
+
+#if BENDING_CONSTRAINT
+
+Buffer<uint> ParticleABuffer;
+Buffer<uint> ParticleBBuffer;
+Buffer<uint> ParticleCBuffer;
+Buffer<uint> ParticleDBuffer;
+Buffer<half> AngleBuffer;
+Buffer<float4> ParticlePositionBuffer;
+RWBuffer<int> AccumulateDeltaPositionXBuffer;
+RWBuffer<int> AccumulateDeltaPositionYBuffer;
+RWBuffer<int> AccumulateDeltaPositionZBuffer;
+RWBuffer<uint> AccumulateCountBuffer;
+
+uint ConstraintOffset;
+uint NumConstraints;
+float DeltaTime;
+float InvIterCount;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+    if (ThreadId.x >= NumConstraints)return;
+
+    uint ConstraintID = ThreadId.x + ConstraintOffset;
+
+    uint PackedIDA = ParticleABuffer[ConstraintID];
+    uint PackedIDB = ParticleBBuffer[ConstraintID];
+    uint PackedIDC = ParticleCBuffer[ConstraintID];
+    uint PackedIDD = ParticleDBuffer[ConstraintID];
+    float StaticAngle = AngleBuffer[ConstraintID];
+
+    // 默认只有粒子A有可能是固定的，因为如果AB都固定，就不需要这个约束了
+    uint IsParticleAFixed = IsParticleFixed(PackedIDA);
+    uint SharedEdgeParticle0 = UnpackParticleID(PackedIDA);
+
+    // todo: 
+    uint IsParticleBFixed = IsParticleFixed(PackedIDB);
+    uint SharedEdgeParticle1 = UnpackParticleID(PackedIDB);
+
+    uint IsParticleCFixed = IsParticleFixed(PackedIDC);
+    uint OppositeParticle0 = UnpackParticleID(PackedIDC);
+
+    uint IsParticleDFixed = IsParticleFixed(PackedIDD);
+    uint OppositeParticle1 = UnpackParticleID(PackedIDD);
+
+    float3 PositionSharedEdgeParticle0 = ParticlePositionBuffer[SharedEdgeParticle0].xyz;
+    float3 PositionSharedEdgeParticle1 = ParticlePositionBuffer[SharedEdgeParticle1].xyz;
+    float3 PositionOppositeParticle0 = ParticlePositionBuffer[OppositeParticle0].xyz;
+    float3 PositionOppositeParticle1 = ParticlePositionBuffer[OppositeParticle1].xyz;
+
+
+    float3 Grads[4];
+
+    float3 Edge = PositionSharedEdgeParticle1 - PositionSharedEdgeParticle0;
+
+    // 下面的公式是 \frac{\vec{N}}{|N|^2}，需要长度，所以此处不去normalize
+    float3 Normal1 = cross(PositionOppositeParticle0 - PositionSharedEdgeParticle0, PositionOppositeParticle0 - PositionSharedEdgeParticle1);
+    float Normal1SizeSquared = dot(Normal1, Normal1);
+    float3 NDivNSqr1 = Normal1 / Normal1SizeSquared;
+
+    float3 Normal2 = cross(PositionOppositeParticle1 - PositionSharedEdgeParticle1, PositionOppositeParticle1 - PositionSharedEdgeParticle0);
+    float Normal2SizeSquared = dot(Normal2, Normal2);
+    float3 NDivNSqr2 = Normal2 / Normal2SizeSquared;
+
+
+    float EdgeSize = length(Edge);
+
+    if (EdgeSize < 1e-7)
+    {
+        return;
+    }
+
+    float InvEdgeLen = 1.0 / EdgeSize;
+
+    Grads[0] = dot(Edge, PositionOppositeParticle0 - PositionSharedEdgeParticle1) * InvEdgeLen * NDivNSqr1
+        + dot(Edge, PositionOppositeParticle1 - PositionSharedEdgeParticle1) * InvEdgeLen * NDivNSqr2;
+
+    Grads[1] = dot(Edge, PositionSharedEdgeParticle0 - PositionOppositeParticle0) * InvEdgeLen * NDivNSqr1
+        + dot(Edge, PositionSharedEdgeParticle0 - PositionOppositeParticle1) * InvEdgeLen * NDivNSqr2;
+
+    Grads[2] = EdgeSize * NDivNSqr1;
+    Grads[3] = EdgeSize * NDivNSqr2;
+
+    // todo: P1 P2的顺序是否影响？按理来说应该是没影响的，只要构建和投影时一致即可
+
+    float Stiffness = 1.0 * InvIterCount;
+
+    // 此时不需要长度信息了
+    Normal1 = YQSafeNormalize(Normal1);
+    Normal2 = YQSafeNormalize(Normal2);
+
+    float Angle = YQGetAngle(Normal1, Normal2);
+
+    
+    float InvM0 = 1.0;
+    float InvM1 = 1.0;
+    float InvM2 = 1.0;
+    float InvM3 = 1.0;
+
+    // 缩放系数的分母
+    float Denom = (InvM0 * dot(Grads[0], Grads[0]) + InvM1 * dot(Grads[1], Grads[1]) + InvM2 * dot(Grads[2], Grads[2]) + InvM3 * dot(Grads[3], Grads[3]));
+
+    if (abs(Denom) < 1e-7)
+    {
+        return;
+    }
+
+    float Delta = Angle - StaticAngle;
+
+    // https://github.com/InteractiveComputerGraphics/PositionBasedDynamics/blob/master/PositionBasedDynamics/PositionBasedDynamics.cpp
+    // 看到的代码，虽然被注释了，但可能有用。看起来这种弯曲约束不太稳定。
+    /*if (Stiffness > 0.5 && abs(Angle - StaticAngle) > 1.5)
+        Stiffness = 0.5;*/
+
+    float S = Stiffness * Delta / Denom;
+
+    // 根据点乘结果正负判断弯曲情况，是否大于180度
+    S = dot(Edge, cross(Normal1, Normal2)) > 0.0 ? -S : S;
+
+    float3 Delta0 = -S * InvM0 * Grads[0];
+    float3 Delta1 = -S * InvM1 * Grads[1];
+    float3 Delta2 = -S * InvM2 * Grads[2];
+    float3 Delta3 = -S * InvM3 * Grads[3];
+
+
+    if (IsParticleAFixed == 0)
+    {
+        InterlockedAdd(AccumulateDeltaPositionXBuffer[SharedEdgeParticle0], FloatToIntForAtomic(Delta0.x));
+        InterlockedAdd(AccumulateDeltaPositionYBuffer[SharedEdgeParticle0], FloatToIntForAtomic(Delta0.y));
+        InterlockedAdd(AccumulateDeltaPositionZBuffer[SharedEdgeParticle0], FloatToIntForAtomic(Delta0.z));
+
+        InterlockedAdd(AccumulateCountBuffer[SharedEdgeParticle0], 1);
+    }
+
+    if (IsParticleBFixed == 0)
+    {
+        InterlockedAdd(AccumulateDeltaPositionXBuffer[SharedEdgeParticle1], FloatToIntForAtomic(Delta1.x));
+        InterlockedAdd(AccumulateDeltaPositionYBuffer[SharedEdgeParticle1], FloatToIntForAtomic(Delta1.y));
+        InterlockedAdd(AccumulateDeltaPositionZBuffer[SharedEdgeParticle1], FloatToIntForAtomic(Delta1.z));
+
+        InterlockedAdd(AccumulateCountBuffer[SharedEdgeParticle1], 1);
+    }
+
+    if (IsParticleCFixed == 0)
+    {
+        InterlockedAdd(AccumulateDeltaPositionXBuffer[OppositeParticle0], FloatToIntForAtomic(Delta2.x));
+        InterlockedAdd(AccumulateDeltaPositionYBuffer[OppositeParticle0], FloatToIntForAtomic(Delta2.y));
+        InterlockedAdd(AccumulateDeltaPositionZBuffer[OppositeParticle0], FloatToIntForAtomic(Delta2.z));
+
+        InterlockedAdd(AccumulateCountBuffer[OppositeParticle0], 1);
+    }
+
+    if (IsParticleDFixed == 0)
+    {
+        InterlockedAdd(AccumulateDeltaPositionXBuffer[OppositeParticle1], FloatToIntForAtomic(Delta3.x));
+        InterlockedAdd(AccumulateDeltaPositionYBuffer[OppositeParticle1], FloatToIntForAtomic(Delta3.y));
+        InterlockedAdd(AccumulateDeltaPositionZBuffer[OppositeParticle1], FloatToIntForAtomic(Delta3.z));
+
+        InterlockedAdd(AccumulateCountBuffer[OppositeParticle1], 1);
+    }
 }
 
 #endif

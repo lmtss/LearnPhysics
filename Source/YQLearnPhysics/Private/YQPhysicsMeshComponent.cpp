@@ -163,6 +163,7 @@ FPrimitiveViewRelevance FYQPhysicsMeshSceneProxy::GetViewRelevance(const FSceneV
 FYQMeshPhysicsProxy::FYQMeshPhysicsProxy(const UYQPhysicsMeshComponent* InComponent) 
 	: FYQPhysicsProxy()
 	, bUseBendingConstraints(InComponent->bUseBendingConstraints)
+	, bUseDistanceBendingConstraints(InComponent->bUseDistanceBendingConstraints)
 {
 	FStaticMeshRenderData* RenderData = InComponent->GetStaticMesh()->GetRenderData();
 	FStaticMeshLODResources& StaticMeshResourceLOD0 = RenderData->LODResources[0];
@@ -209,20 +210,34 @@ void FYQMeshPhysicsProxy::GetDynamicPhysicsConstraints(FConstraintsBatch& OutBat
 	DistanceConstraints.ConstraintSourceType = EConstraintSourceType::Mesh;
 	DistanceConstraints.NumConstraints = 1;
 
-
 	BatchElements.Add(DistanceConstraints);
 
 	if (bUseBendingConstraints)
 	{
-		FConstraintsBatchElement DistanceBendingConstraints;
+		if (bUseDistanceBendingConstraints)
+		{
+			FConstraintsBatchElement DistanceBendingConstraints;
 
-		DistanceBendingConstraints.Type = EConstraintType::DistanceBending;
-		DistanceBendingConstraints.bUseMeshInfo = true;
-		DistanceBendingConstraints.ConstraintSourceType = EConstraintSourceType::Mesh;
-		DistanceBendingConstraints.NumConstraints = 1;
+			DistanceBendingConstraints.Type = EConstraintType::DistanceBending;
+			DistanceBendingConstraints.bUseMeshInfo = true;
+			DistanceBendingConstraints.ConstraintSourceType = EConstraintSourceType::Mesh;
+			DistanceBendingConstraints.NumConstraints = 1;
 
+			BatchElements.Add(DistanceBendingConstraints);
+		}
+		else
+		{
+			FConstraintsBatchElement DistanceBendingConstraints;
 
-		BatchElements.Add(DistanceBendingConstraints);
+			DistanceBendingConstraints.Type = EConstraintType::Bending;
+			DistanceBendingConstraints.bUseMeshInfo = true;
+			DistanceBendingConstraints.ConstraintSourceType = EConstraintSourceType::Mesh;
+			DistanceBendingConstraints.NumConstraints = 1;
+
+			BatchElements.Add(DistanceBendingConstraints);
+		}
+
+		
 	}
 }
 
@@ -301,6 +316,7 @@ void UYQPhysicsMeshComponent::GetLifetimeReplicatedProps(TArray< FLifetimeProper
 UYQPhysicsMeshComponent::UYQPhysicsMeshComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer) 
 	, bUseBendingConstraints(false)
+	, bUseDistanceBendingConstraints(false)
 {
 	PrimaryComponentTick.bCanEverTick = true;
 

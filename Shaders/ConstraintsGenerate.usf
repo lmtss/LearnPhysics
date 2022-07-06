@@ -543,3 +543,161 @@ void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, 
 
 
 #endif
+
+
+
+
+
+#if GENERATE_BENDING_CONSTRAINTS
+
+
+// 约定ID较小的在高位
+void DecodeCombinedKey(uint CombinedKey, inout uint IndexA, inout uint IndexB)
+{
+	IndexA = CombinedKey & 0xFFFF0000;
+	IndexA = IndexA >> 16;
+
+	IndexB = CombinedKey & 0x0000FFFF;
+}
+
+void FindSharedEdge(in uint VertexList0[3], in uint VertexList1[3], inout uint IndexA, inout uint IndexB)
+{
+	uint OutIndexList[2];
+	uint OutIndexIndex = 0;
+
+	[loop]
+	for (int IterList0 = 0; IterList0 < 3; IterList0++)
+	{
+		uint VertexID = VertexList0[IterList0];
+
+		[loop]
+		for (int IterList1 = 0; IterList1 < 3; IterList1++)
+		{
+			if (VertexID == VertexList1[IterList1])
+			{
+				OutIndexList[OutIndexIndex] = VertexID;
+				OutIndexIndex++;
+
+				break;
+			}
+		}
+	}
+
+	IndexA = OutIndexList[0];
+	IndexB = OutIndexList[1];
+}
+
+uint FindOppositeVertex(in uint VertexList0[3], in uint VertexList1[3])
+{
+	[loop]
+	for (int IterList0 = 0; IterList0 < 3; IterList0++)
+	{
+		uint VertexID = VertexList0[IterList0];
+
+		bool bNotEqual = true;
+
+		[loop]
+		for (int IterList1 = 0; IterList1 < 3; IterList1++)
+		{
+			if (VertexID == VertexList1[IterList1])
+			{
+				bNotEqual = false;
+				break;
+			}
+		}
+
+		if (bNotEqual)
+		{
+			return VertexID;
+		}
+	}
+
+	return 2;
+}
+
+Buffer<uint> IndexBuffer;
+Buffer<uint> CombinedTriangleIDBuffer;
+Buffer<float> PositionBuffer;
+Buffer<half4> ColorBuffer;
+
+RWBuffer<half> AngleBuffer;
+RWBuffer<uint> ConstraintsParticleABuffer;
+RWBuffer<uint> ConstraintsParticleBBuffer;
+RWBuffer<uint> ConstraintsParticleCBuffer;
+RWBuffer<uint> ConstraintsParticleDBuffer;
+
+uint NumConstraints;
+uint OffsetConstraints;
+uint OffsetParticles;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	uint ThreadID = DispatchThreadId.x;
+
+	if (ThreadID >= NumConstraints)return;
+
+	uint IndexA, IndexB;
+	DecodeCombinedKey(CombinedTriangleIDBuffer[ThreadID], IndexA, IndexB);
+
+	uint WriteOffset = OffsetConstraints + ThreadID;
+
+	uint VertexList0[3];
+	uint VertexList1[3];
+
+	[unroll]
+	for (int i = 0; i < 3; i++)
+	{
+		VertexList0[i] = IndexBuffer[IndexA * 3 + i];
+		VertexList1[i] = IndexBuffer[IndexB * 3 + i];
+	}
+
+	// todo: 优化这里
+	uint OppositeVertex0 = FindOppositeVertex(VertexList0, VertexList1);
+	uint OppositeVertex1 = FindOppositeVertex(VertexList1, VertexList0);
+	uint SharedEdgeVertex0, SharedEdgeVertex1;
+	FindSharedEdge(VertexList0, VertexList1, SharedEdgeVertex0, SharedEdgeVertex1);
+
+	uint PackedIndex0 = SharedEdgeVertex0 + OffsetParticles;
+	if (ColorBuffer[SharedEdgeVertex0].r > 0.8)
+	{
+		PackedIndex0 = PackParticleToFixed(PackedIndex0);
+	}
+
+	uint PackedIndex1 = SharedEdgeVertex1 + OffsetParticles;
+	if (ColorBuffer[SharedEdgeVertex1].r > 0.8)
+	{
+		PackedIndex1 = PackParticleToFixed(PackedIndex1);
+	}
+
+	uint PackedIndex2 = OppositeVertex0 + OffsetParticles;
+	if (ColorBuffer[OppositeVertex0].r > 0.8)
+	{
+		PackedIndex2 = PackParticleToFixed(PackedIndex2);
+	}
+
+	uint PackedIndex3 = OppositeVertex1 + OffsetParticles;
+	if (ColorBuffer[OppositeVertex1].r > 0.8)
+	{
+		PackedIndex3 = PackParticleToFixed(PackedIndex3);
+	}
+
+	ConstraintsParticleABuffer[WriteOffset] = PackedIndex0;
+	ConstraintsParticleBBuffer[WriteOffset] = PackedIndex1;
+	ConstraintsParticleCBuffer[WriteOffset] = PackedIndex2;
+	ConstraintsParticleDBuffer[WriteOffset] = PackedIndex3;
+
+
+
+	float3 Position0 = float3(PositionBuffer[SharedEdgeVertex0 * 3], PositionBuffer[SharedEdgeVertex0 * 3 + 1], PositionBuffer[SharedEdgeVertex0 * 3 + 2]);
+	float3 Position1 = float3(PositionBuffer[SharedEdgeVertex1 * 3], PositionBuffer[SharedEdgeVertex1 * 3 + 1], PositionBuffer[SharedEdgeVertex1 * 3 + 2]);
+	float3 Position2 = float3(PositionBuffer[OppositeVertex0 * 3], PositionBuffer[OppositeVertex0 * 3 + 1], PositionBuffer[OppositeVertex0 * 3 + 2]);
+	float3 Position3 = float3(PositionBuffer[OppositeVertex1 * 3], PositionBuffer[OppositeVertex1 * 3 + 1], PositionBuffer[OppositeVertex1 * 3 + 2]);
+
+	float Angle = YQGetAngle(Position0, Position1, Position2, Position3);
+
+	AngleBuffer[WriteOffset] = Angle;
+}
+
+
+#endif

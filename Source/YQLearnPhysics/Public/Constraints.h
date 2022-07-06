@@ -4,6 +4,7 @@ enum class EConstraintType
 {
     Distance = 0,
     DistanceBending,
+    Bending,
     ShapeMatch,
     Num
 };
