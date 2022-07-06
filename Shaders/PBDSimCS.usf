@@ -180,11 +180,9 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
     uint PackedIDD = ParticleDBuffer[ConstraintID];
     float StaticAngle = AngleBuffer[ConstraintID];
 
-    // 默认只有粒子A有可能是固定的，因为如果AB都固定，就不需要这个约束了
     uint IsParticleAFixed = IsParticleFixed(PackedIDA);
     uint SharedEdgeParticle0 = UnpackParticleID(PackedIDA);
 
-    // todo: 
     uint IsParticleBFixed = IsParticleFixed(PackedIDB);
     uint SharedEdgeParticle1 = UnpackParticleID(PackedIDB);
 
