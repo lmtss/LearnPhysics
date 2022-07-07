@@ -2,8 +2,10 @@
 在UE上练习用GPU做物理模拟，尽可能不修改引擎，在插件中做全部，仍在施工中。   
 ## todo
 - [x] 距离约束版的弯曲约束，参考chaos
-- [ ] 基于运动正交推导的弯曲约束，[参考](https://www.cs.ubc.ca/~rbridson/docs/cloth2003.pdf)
+- [X] 基于运动正交推导的弯曲约束，[参考](https://www.cs.ubc.ca/~rbridson/docs/cloth2003.pdf)
 - [ ] 基于迭代次数和帧率的刚性计算，参考chaos
+  - [x] 基于迭代次数的计算
+  - [ ] 基于帧率和Dt修正
 - [ ] Long Range Attachments
   - [ ] GPU上的Mesh Connected Component Label
 - [ ] 组件的PhysicsState的摧毁
@@ -56,8 +58,8 @@
 
 ![弯曲约束](Img/BendingConstraint-Algo.png)   
 
-这篇文章的思路并非对约束求梯度，而是基于运动的正交性，来推导出弯曲运动的运动模式，最后得到上面的公式。当前我的实现还有些bug，明显的不稳定。
-
+这篇文章的思路并非对约束求梯度，而是基于运动的正交性，来推导出弯曲运动的运动模式，最后得到上面的公式。当前我的实现还有些bug，明显的不稳定。   
+从部分视觉效果来看，基于距离的弯曲约束会影响拉伸部分的约束，不方便控制，而基于角度的弯曲约束能够避免这一点。    
 
 # SceneComponent
 有了网格体资源之后，场景中用自定义的PrimitiveComponent来显示模拟的物体，自定义vertexfactory来fetch模拟出的顶点位置和法线，这可能带来大量的shader编译 (也是我开发时的困扰点，这很浪费时间)。   
@@ -78,6 +80,19 @@
 距离约束统一保存在三个buffer当中，静态距离buffer、粒子A的ID的buffer、粒子B的ID的buffer。每次迭代都用计算着色器计算某一种约束，并将位置的变化量累积到buffer当中。  
 这里的问题是，一个粒子可能被多个约束引用，所以写入时会有同步问题。这个问题暂时没研究透彻，现在是将变化量转为整形，然后用原子操作进行累加。    
 另一种想到的方式是，我们可以在添加物体时，计算出每个约束对buffer的输出位置，这样可以在输出时，将同一个粒子的变化量输出到连续的空间，下一步用计算着色器做累加。  
+
+# 刚性
+对于刚性，一个简单的假设是材质的刚性除以迭代次数，但是，实际上迭代对结果的影响是非线性的。  
+在[Position Based Dynamics](https://matthias-research.github.io/pages/publications/posBasedDyn.pdf)文中给出的一个思路是  
+$$
+k^`=1-(1-k)^{1/n_s}
+$$
+而UE的chaos对其进行了修改，让这个相关于迭代次数的曲线变得更加陡峭，他的公式是  
+$$
+k^`=1-(1-1000^{k-1})^{1/n_s}
+$$  
+
+<div align=center><img src="./Img/Stiffness.png"><div>chaos的刚性系数随迭代次数变化更快，更陡峭</div></div>  
 
 # 与CPU物体的交互
 当前设想是分为GPU上运算的物体和CPU上运算的物体(引擎自己的物理计算)，但这样两者之间的交互就成了问题。   

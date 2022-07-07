@@ -15,7 +15,7 @@ void SolvePBDDistanceConstraint_RenderThread(
 	, FUnorderedAccessViewRHIRef AccumulateCountBuffer
 	, uint32 NumConstraints
 	, float DeltaTime
-	, float InvIterCount
+	, float Stiffness
 );
 
 void ResolveDeltaPosition_RenderThread(
@@ -54,7 +54,7 @@ void SolvePBDBendingConstraint_RenderThread(
 	, FUnorderedAccessViewRHIRef AccumulateCountBuffer
 	, uint32 NumConstraints
 	, float DeltaTime
-	, float InvIterCount
+	, float Stiffness
 );
 
 

@@ -29,7 +29,7 @@ public:
 		SHADER_PARAMETER(uint32, ConstraintOffset)
 		SHADER_PARAMETER(uint32, NumConstraints)
 		SHADER_PARAMETER(float, DeltaTime)
-		SHADER_PARAMETER(float, InvIterCount)
+		SHADER_PARAMETER(float, Stiffness)
 		END_SHADER_PARAMETER_STRUCT()
 
 public:
@@ -60,7 +60,7 @@ void SolvePBDDistanceConstraint_RenderThread(
 	, FUnorderedAccessViewRHIRef AccumulateCountBuffer
 	, uint32 NumConstraints
 	, float DeltaTime
-	, float InvIterCount
+	, float Stiffness
 )
 {
 	SCOPED_DRAW_EVENT(RHICmdList, SolvePBDDistanceConstraint);
@@ -82,7 +82,7 @@ void SolvePBDDistanceConstraint_RenderThread(
 	PassParameters.ConstraintOffset = 0;
 	PassParameters.NumConstraints = NumConstraints;
     PassParameters.DeltaTime = DeltaTime;
-	PassParameters.InvIterCount = InvIterCount;
+	PassParameters.Stiffness = Stiffness;
 
 	//RHICmdList.Transition(FRHITransitionInfo(ParticleABuffer, ERHIAccess::Unknown, ERHIAccess::UAVCompute));
 	SetShaderParameters(RHICmdList, ComputeShader, ComputeShader.GetComputeShader(), PassParameters);
@@ -253,7 +253,7 @@ public:
 		SHADER_PARAMETER(uint32, ConstraintOffset)
 		SHADER_PARAMETER(uint32, NumConstraints)
 		SHADER_PARAMETER(float, DeltaTime)
-		SHADER_PARAMETER(float, InvIterCount)
+		SHADER_PARAMETER(float, Stiffness)
 		END_SHADER_PARAMETER_STRUCT()
 
 public:
@@ -288,7 +288,7 @@ void SolvePBDBendingConstraint_RenderThread(
 	, FUnorderedAccessViewRHIRef AccumulateCountBuffer
 	, uint32 NumConstraints
 	, float DeltaTime
-	, float InvIterCount
+	, float Stiffness
 )
 {
 	SCOPED_DRAW_EVENT(RHICmdList, SolvePBDBendingConstraint);
@@ -312,7 +312,7 @@ void SolvePBDBendingConstraint_RenderThread(
 	PassParameters.ConstraintOffset = 0;
 	PassParameters.NumConstraints = NumConstraints;
 	PassParameters.DeltaTime = DeltaTime;
-	PassParameters.InvIterCount = InvIterCount;
+	PassParameters.Stiffness = Stiffness;
 
 	//RHICmdList.Transition(FRHITransitionInfo(ParticleABuffer, ERHIAccess::Unknown, ERHIAccess::UAVCompute));
 	SetShaderParameters(RHICmdList, ComputeShader, ComputeShader.GetComputeShader(), PassParameters);

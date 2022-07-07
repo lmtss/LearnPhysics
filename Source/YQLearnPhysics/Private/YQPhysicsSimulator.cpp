@@ -6,6 +6,8 @@
 #include "MeshModify.h"
 #include "CollisionResponse.h"
 
+#include "YQStiffness.h"
+
 
 int UYQPhysicsBlueprintLibrary::AddStaticMeshActorToPhysicsScene(UStaticMeshComponent* StaticMeshComponent)
 {
@@ -118,7 +120,12 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 	TArray< FVector> AccFeedBacks;
 	AccFeedBacks.AddZeroed(CPUObjectProxyList.Num());
 
+
 	int NumIters = 20;
+
+
+	float Stiffness = FYQStiffness::CalcPBDStiffness(SubstepTime, NumIters, 0.9);
+
 	for (int IterSubStep = 0; IterSubStep < NumSubSteps; IterSubStep++)
 	{
 		CopyPositionForCollision(RHICmdList, PhysicsScene->GetPositionBuffer().SRV, OrignalPositionBuffer.UAV, NumParticles);
@@ -170,7 +177,7 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 				, AccumulateCountBuffer.UAV
 				, NumDistanceConstraints
 				, SubstepTime
-				, 1.0 / (float)NumIters
+				, Stiffness		//1.0 / (float)NumIters
 			);
 
 			SolvePBDBendingConstraint_RenderThread(
@@ -187,7 +194,7 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 				, AccumulateCountBuffer.UAV
 				, NumBendingConstraints
 				, SubstepTime
-				, 1.0 / (float)NumIters
+				, Stiffness			//1.0 / (float)NumIters
 			);
 
 			ResolveDeltaPosition_RenderThread(

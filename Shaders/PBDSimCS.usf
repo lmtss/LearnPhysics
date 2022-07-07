@@ -35,7 +35,7 @@ RWBuffer<uint> AccumulateCountBuffer;
 uint ConstraintOffset;
 uint NumConstraints;
 float DeltaTime;
-float InvIterCount;
+float Stiffness;
 
 [numthreads(THREAD_COUNT, 1, 1)]
 void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID) 
@@ -59,7 +59,7 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
     float4 PositionA = ParticlePositionBuffer[ParticleIDA];
     float4 PositionB = ParticlePositionBuffer[ParticleIDB];
 
-    float Stiffness = 1.0 * InvIterCount;
+    //float Stiffness = 1.0 * InvIterCount;
 
     float3 BToA = (PositionA - PositionB).xyz;
     float Distance = dot(BToA, BToA);
@@ -165,7 +165,7 @@ RWBuffer<uint> AccumulateCountBuffer;
 uint ConstraintOffset;
 uint NumConstraints;
 float DeltaTime;
-float InvIterCount;
+float Stiffness;
 
 [numthreads(THREAD_COUNT, 1, 1)]
 void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
@@ -232,7 +232,7 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
 
     // todo: P1 P2的顺序是否影响？按理来说应该是没影响的，只要构建和投影时一致即可
 
-    float Stiffness = 1.0 * InvIterCount;
+    //float Stiffness = 1.0 * InvIterCount;
 
     // 此时不需要长度信息了
     Normal1 = YQSafeNormalize(Normal1);
