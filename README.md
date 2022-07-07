@@ -84,13 +84,17 @@
 # 刚性
 对于刚性，一个简单的假设是材质的刚性除以迭代次数，但是，实际上迭代对结果的影响是非线性的。  
 在[Position Based Dynamics](https://matthias-research.github.io/pages/publications/posBasedDyn.pdf)文中给出的一个思路是  
+
 $$
 k^`=1-(1-k)^{1/n_s}
-$$
-而UE的chaos对其进行了修改，让这个相关于迭代次数的曲线变得更加陡峭，他的公式是  
+$$  
+
+而UE的chaos对其进行了修改，让这个相关于迭代次数的曲线变得更加陡峭，他的公式是   
+
 $$
 k^`=1-(1-1000^{k-1})^{1/n_s}
 $$  
+
 
 <div align=center><img src="./Img/Stiffness.png"><div>chaos的刚性系数随迭代次数变化更快，更陡峭</div></div>  
 
