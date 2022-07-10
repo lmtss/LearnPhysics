@@ -78,3 +78,155 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
 }
 
 #endif
+
+
+#if CALC_NORMAL_AND_TANGENT
+
+Buffer<float4> PositionBuffer;
+Buffer<uint> IndexBuffer; 
+Buffer<half2> TexCoordBuffer;
+
+RWBuffer<int> AccumulateDeltaXBuffer;
+RWBuffer<int> AccumulateDeltaYBuffer;
+RWBuffer<int> AccumulateDeltaZBuffer;
+
+void AddToDeltaBuffer(uint Offset, float3 Val)
+{
+	InterlockedAdd(AccumulateDeltaXBuffer[Offset], FloatToIntForAtomic(Val.x));
+	InterlockedAdd(AccumulateDeltaYBuffer[Offset], FloatToIntForAtomic(Val.y));
+	InterlockedAdd(AccumulateDeltaZBuffer[Offset], FloatToIntForAtomic(Val.z));
+}
+
+uint NumTriangles;
+uint NumVertices;
+uint PositionBufferOffset;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+	if (ThreadId.x >= NumTriangles) return;
+
+	uint TriangleID = ThreadId.x;
+
+	uint VertexID0 = IndexBuffer[TriangleID * 3];
+	uint VertexID1 = IndexBuffer[TriangleID * 3 + 1];
+	uint VertexID2 = IndexBuffer[TriangleID * 3 + 2];
+
+	float3 Position0 = PositionBuffer[VertexID0 + PositionBufferOffset].xyz;
+	float3 Position1 = PositionBuffer[VertexID1 + PositionBufferOffset].xyz;
+	float3 Position2 = PositionBuffer[VertexID2 + PositionBufferOffset].xyz;
+
+	float2 UV0 = TexCoordBuffer[VertexID0];
+	float2 UV1 = TexCoordBuffer[VertexID1];
+	float2 UV2 = TexCoordBuffer[VertexID2];
+
+	// 参考 Computing Tangent Space Basis Vectors for an Arbitrary Mesh
+	// -------- 切线 -------------
+	float x1 = Position1.x - Position0.x;
+	float x2 = Position2.x - Position0.x;
+	float y1 = Position1.y - Position0.y;
+	float y2 = Position2.y - Position0.y;
+	float z1 = Position1.z - Position0.z;
+	float z2 = Position2.z - Position0.z;
+
+	float s1 = UV1.x - UV0.x;
+	float s2 = UV2.x - UV0.x;
+	float t1 = UV1.y - UV0.y;
+	float t2 = UV2.y - UV0.y;
+
+	float r = 1.0 / (s1 * t2 - s2 * t1);
+
+	float3 sdir = float3(
+		(t2 * x1 - t1 * x2) * r
+		, (t2 * y1 - t1 * y2) * r
+		, (t2 * z1 - t1 * z2) * r
+	);
+
+	float3 tdir = float3(
+		(s1 * x2 - s2 * x1) * r
+		, (s1 * y2 - s2 * y1) * r
+		, (s1 * z2 - s2 * z1) * r
+	);
+
+	AddToDeltaBuffer(VertexID0 + NumVertices, sdir);
+	AddToDeltaBuffer(VertexID1 + NumVertices, sdir);
+	AddToDeltaBuffer(VertexID2 + NumVertices, sdir);
+
+	AddToDeltaBuffer(VertexID0 + NumVertices * 2, tdir);
+	AddToDeltaBuffer(VertexID1 + NumVertices * 2, tdir);
+	AddToDeltaBuffer(VertexID2 + NumVertices * 2, tdir);
+
+	// -------- 法线 -------------
+	float3 Normal = normalize(cross(Position1 - Position2, Position0 - Position2));
+
+	AddToDeltaBuffer(VertexID0, Normal);
+	AddToDeltaBuffer(VertexID1, Normal);
+	AddToDeltaBuffer(VertexID2, Normal);
+}
+
+#endif
+
+
+
+
+#if RESOLVE_DELTA_NORMAL_AND_TANGENT
+
+RWBuffer<half4> OutputNormalBuffer;
+RWBuffer<half4> OutputTangentBuffer;
+
+RWBuffer<int> AccumulateDeltaXBuffer;
+RWBuffer<int> AccumulateDeltaYBuffer;
+RWBuffer<int> AccumulateDeltaZBuffer;
+
+float3 GetDeltaBufferVal(uint Offset)
+{
+	float DeltaX = IntToFloatForAtomic(AccumulateDeltaXBuffer[Offset]);
+	float DeltaY = IntToFloatForAtomic(AccumulateDeltaYBuffer[Offset]);
+	float DeltaZ = IntToFloatForAtomic(AccumulateDeltaZBuffer[Offset]);
+
+	return float3(DeltaX, DeltaY, DeltaZ);
+}
+
+uint NumVertices;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
+{
+	if (ThreadId.x >= NumVertices) return;
+
+	uint VertexID = ThreadId.x;
+
+	float3 Normal = GetDeltaBufferVal(VertexID);
+	Normal = normalize(Normal);
+
+	Normal = Normal * 0.5 + 0.5;
+
+	OutputNormalBuffer[VertexID] = half4(Normal.x, Normal.y, Normal.z, 0.0);
+
+	float3 VertexTangentXSum = GetDeltaBufferVal(VertexID + NumVertices);
+	float3 VertexTangentYSum = GetDeltaBufferVal(VertexID + NumVertices * 2);
+
+	// Gram-Schmidt orthogonalize
+	float3 Tangent = normalize(VertexTangentXSum - Normal * dot(Normal, VertexTangentXSum));
+	Tangent = Tangent * 0.5 + 0.5;
+	// Calculate handedness
+	half bFlipBitangent = (dot(cross(Normal, VertexTangentXSum), VertexTangentYSum) < 0.0) ? 0.0 : 1.0;	// 此处直接映射到(0, 1)区间
+
+	OutputTangentBuffer[VertexID] = half4(Tangent, bFlipBitangent);
+
+
+
+	AccumulateDeltaXBuffer[VertexID] = 0;
+	AccumulateDeltaYBuffer[VertexID] = 0;
+	AccumulateDeltaZBuffer[VertexID] = 0;
+
+	AccumulateDeltaXBuffer[VertexID + NumVertices] = 0;
+	AccumulateDeltaYBuffer[VertexID + NumVertices] = 0;
+	AccumulateDeltaZBuffer[VertexID + NumVertices] = 0;
+
+	AccumulateDeltaXBuffer[VertexID + NumVertices * 2] = 0;
+	AccumulateDeltaYBuffer[VertexID + NumVertices * 2] = 0;
+	AccumulateDeltaZBuffer[VertexID + NumVertices * 2] = 0;
+}
+
+#endif

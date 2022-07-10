@@ -120,6 +120,7 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 	TArray< FVector> AccFeedBacks;
 	AccFeedBacks.AddZeroed(CPUObjectProxyList.Num());
 
+	TArray<FYQPhysicsProxy*>& ProxyList = PhysicsScene->GetProxyListRenderThread();
 
 	int NumIters = 20;
 
@@ -143,7 +144,6 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 
 		PhysicsScene->SwapBuffer();
 
-		TArray<FYQPhysicsProxy*>& ProxyList = PhysicsScene->GetProxyListRenderThread();
 		for (int i = 0; i < ProxyList.Num(); i++)
 		{
 			FYQPhysicsProxy* Proxy = ProxyList[i];
@@ -312,4 +312,37 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 
 	//CPUObjectProxy->FeedBack = SumFeedBack;
 
+	for (FYQPhysicsProxy* Proxy : ProxyList)
+	{
+		if (Proxy->bHasRenderSceneProxy)
+		{
+			FRenderDataRequestBatch RenderDataRequestBatch;
+			Proxy->RenderSceneProxy->GetRenderDataRequest(RenderDataRequestBatch);
+
+			for (FRenderDataRequest& RenderDataRequest : RenderDataRequestBatch.Elements)
+			{
+				if (RenderDataRequest.bNeedDynamicNormal && RenderDataRequest.bNeedDynamicTangent)
+				{
+					if (RenderDataRequest.NormalBufferUAV && RenderDataRequest.TangentBufferUAV && RenderDataRequest.TexCoordBufferSRV)
+					{
+						CalcNormalAndTangent(
+							RHICmdList
+							, PhysicsScene->GetPositionBuffer().SRV
+							, Proxy->IndexBufferSRV
+							, RenderDataRequest.TexCoordBufferSRV
+							, RenderDataRequest.NormalBufferUAV
+							, RenderDataRequest.TangentBufferUAV
+							, AccumulateDeltaPositionXBuffer.UAV
+							, AccumulateDeltaPositionYBuffer.UAV
+							, AccumulateDeltaPositionZBuffer.UAV
+							, 0
+							, Proxy->BufferIndexOffset
+							, Proxy->NumVertices
+							, Proxy->NumBufferElement
+						);
+					}
+				}
+			}
+		}
+	}
 }

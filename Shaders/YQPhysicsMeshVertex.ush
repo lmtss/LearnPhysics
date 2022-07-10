@@ -2,6 +2,36 @@
 
 #ifdef VF_YQ_PHYSICS
 
+struct FPositionAndNormalOnlyVertexFactoryInput
+{
+	float4	Position	: ATTRIBUTE0;
+	float4 Normal : ATTRIBUTE1;
+	uint VertexId : SV_VertexID;
+};
+
+struct FPositionOnlyVertexFactoryInput
+{
+	float4	Position	: ATTRIBUTE0;
+	uint VertexId : SV_VertexID;
+};
+
+struct FVertexFactoryInterpolantsVSToPS
+{
+#if !DEBUG_POINT
+	TANGENTTOWORLD_INTERPOLATOR_BLOCK
+#endif
+
+#if NUM_MATERIAL_TEXCOORDS_VERTEX
+	float4 TexCoords : TEXCOORD0;
+#endif
+
+#if !DEBUG_POINT
+	//half3 Normal : COLOR0;
+#endif
+};
+
+
+
 struct FVertexFactoryInput
 {
 	uint VertexId : SV_VertexID;
@@ -28,7 +58,8 @@ struct FVertexFactoryIntermediates
 	float3 Position;
 	half3 Normal;
 	float4 TexCoords;
-
+	half3x3 TangentToWorld;
+	half TangentToWorldSign;
 };
 
 uint GetVertexIndex(in FVertexFactoryInput Input)
@@ -36,10 +67,52 @@ uint GetVertexIndex(in FVertexFactoryInput Input)
 	return Input.VertexId + YQPhysicsVF.YQPhysicsVertexOffset;
 }
 
-
+uint GetVertexIndex(in FPositionOnlyVertexFactoryInput Input)
+{
+	return Input.VertexId + YQPhysicsVF.YQPhysicsVertexOffset;
+}
 
 Buffer<float4> PositionBuffer;
 Buffer<half4> NormalBuffer;
+Buffer<half4> TangentBUffer;
+
+
+
+
+void SetupVertex(FPositionOnlyVertexFactoryInput Input, out float3 OutPosition)
+{
+	uint VertexIndex = GetVertexIndex(Input);
+
+	uint BufferIndex = VertexIndex;
+
+	float3 Position = PositionBuffer[BufferIndex].xyz;
+
+	OutPosition = Position;
+}
+
+half3x3 CalcTangentToWorld(half3 WorldNormal, half4 TangentWithW, inout half TangentSign)
+{
+	half3 TangentInputX = TangentWithW.xyz;
+	half4 TangentInputZ = half4(WorldNormal, TangentWithW.w);
+
+	half3 TangentX = TangentBias(TangentInputX);
+	half4 TangentZ = TangentBias(TangentInputZ);
+
+	TangentSign = TangentZ.w;
+
+	// derive the binormal by getting the cross product of the normal and tangent
+	half3 TangentY = cross(TangentZ.xyz, TangentX) * TangentZ.w;
+	
+	// Recalculate TangentX off of the other two vectors
+	// This corrects quantization error since TangentX was passed in as a quantized vertex input
+	// The error shows up most in specular off of a mesh with a smoothed UV seam (normal is smooth, but tangents vary across the seam)
+	half3x3 Result;
+	Result[0] = cross(TangentY, TangentZ.xyz) * TangentZ.w;
+	Result[1] = TangentY;
+	Result[2] = TangentZ.xyz;
+
+	return Result;
+}
 
 FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput Input)
 {
@@ -51,17 +124,23 @@ FVertexFactoryIntermediates GetVertexFactoryIntermediates(FVertexFactoryInput In
 	uint BufferIndex = VertexIndex;
 
 	float3 Position = PositionBuffer[BufferIndex].xyz;
-	float3 Normal = NormalBuffer[BufferIndex].xyz;
+	//half3 Normal = NormalBuffer[BufferIndex].xyz;
+
+	half3 Normal = NormalBuffer[Input.VertexId].xyz * 2.0 - 1.0;
+	half4 TangentWithW = TangentBUffer[Input.VertexId] * 2.0 - 1.0;
+
 
 	Intermediates.Position = Position;
 	Intermediates.Normal = Input.TangentZ.xyz;
 
+	half TangentSign;
+	Intermediates.TangentToWorld = CalcTangentToWorld(Normal, TangentWithW, TangentSign);
+	Intermediates.TangentToWorldSign = TangentSign;
 
 	float2 UV = 0.0;
 	
 	Intermediates.TexCoords.xy = Input.TexCoords0;
 
-	//��Ϊ�õ���float4������ʼ���Ļ�����
 	Intermediates.TexCoords.zw = 0;
 
 	return Intermediates;
@@ -77,6 +156,151 @@ float4 CalcWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates 
 	FLWCVector3 TranslatedWorldPosition = LWCAdd(WorldPosition, ResolvedView.PreViewTranslation);
 	return float4(LWCToFloat(TranslatedWorldPosition), 1.0f);
 	//return float4(Intermediates.Position, 1.0);
+}
+
+
+
+
+float4 VertexFactoryGetWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
+{
+	return CalcWorldPosition(Input, Intermediates);
+}
+
+float4 VertexFactoryGetPreviousWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
+{
+	return CalcWorldPosition(Input, Intermediates);
+}
+
+half3x3 VertexFactoryGetTangentToLocal( FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates )
+{
+#if !DEBUG_POINT
+	//return Intermediates.TangentToLocal;
+#else
+	//return (half3x3)0;
+#endif
+
+	return (half3x3)0;
+}
+
+FMaterialVertexParameters GetMaterialVertexParameters(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, float3 WorldPosition, half3x3 TangentToLocal)
+{
+	FMaterialVertexParameters Result = (FMaterialVertexParameters)0;
+	Result.WorldPosition = WorldPosition;
+	Result.VertexColor = 0;
+
+	Result.TangentToWorld = Intermediates.TangentToWorld;
+	//Result.TangentToWorld = 0;
+
+
+#if NUM_MATERIAL_TEXCOORDS_VERTEX
+	Result.TexCoords[0] = Intermediates.TexCoords.xy;
+#endif
+
+	Result.PrimitiveId = 0;
+
+	return Result;
+}
+
+float4 GetTangentToWorld2(FVertexFactoryInterpolantsVSToPS Interpolants)
+{
+	return Interpolants.TangentToWorld2;
+}
+
+float4 GetTangentToWorld0(FVertexFactoryInterpolantsVSToPS Interpolants)
+{
+	return Interpolants.TangentToWorld0;
+}
+
+void SetTangents(inout FVertexFactoryInterpolantsVSToPS Interpolants, float3 InTangentToWorld0, float3 InTangentToWorld2, float InTangentToWorldSign)
+{
+	Interpolants.TangentToWorld0 = float4(InTangentToWorld0, 0);
+	Interpolants.TangentToWorld2 = float4(InTangentToWorld2, InTangentToWorldSign);
+
+}
+
+/** Assemble the transform from tangent space into world space */
+half3x3 YQAssembleTangentToWorld( half3 TangentToWorld0, half4 TangentToWorld2 )
+{
+	// Will not be orthonormal after interpolation. This perfectly matches xNormal.
+	// Any mismatch with xNormal will cause distortions for baked normal maps.
+
+	// Derive the third basis vector off of the other two.
+	// Flip based on the determinant sign
+	half3 TangentToWorld1 = cross(TangentToWorld2.xyz,TangentToWorld0) * TangentToWorld2.w;
+	// Transform from tangent space to world space
+	return half3x3(TangentToWorld0, TangentToWorld1, TangentToWorld2.xyz);
+}
+
+FVertexFactoryInterpolantsVSToPS VertexFactoryGetInterpolantsVSToPS(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, FMaterialVertexParameters VertexParameters)
+{
+	FVertexFactoryInterpolantsVSToPS Interpolants;
+
+	Interpolants = (FVertexFactoryInterpolantsVSToPS)0;
+	
+#if NUM_MATERIAL_TEXCOORDS_VERTEX
+	Interpolants.TexCoords = Intermediates.TexCoords;
+#endif
+	
+#if !DEBUG_POINT
+
+	SetTangents(Interpolants, Intermediates.TangentToWorld[0], Intermediates.TangentToWorld[2], Intermediates.TangentToWorldSign);
+
+#endif
+
+
+	return Interpolants;
+}
+
+FMaterialPixelParameters GetMaterialPixelParameters(FVertexFactoryInterpolantsVSToPS Interpolants, float4 SvPosition)
+{
+	// GetMaterialPixelParameters is responsible for fully initializing the result
+	FMaterialPixelParameters Result = MakeInitializedMaterialPixelParameters();
+
+#if NUM_MATERIAL_TEXCOORDS_VERTEX
+	Result.TexCoords[0] = Interpolants.TexCoords.xy;
+#endif
+
+
+	half3 TangentToWorld0 = GetTangentToWorld0(Interpolants).xyz;
+	half4 TangentToWorld2 = GetTangentToWorld2(Interpolants);
+	Result.UnMirrored = TangentToWorld2.w;
+
+	Result.TangentToWorld = YQAssembleTangentToWorld( TangentToWorld0, TangentToWorld2 );
+
+	
+	return Result;
+}
+
+float4 VertexFactoryGetRasterizedWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates, float4 InWorldPosition)
+{
+	return InWorldPosition;
+}
+
+float3 VertexFactoryGetWorldNormal(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
+{
+#if !DEBUG_POINT
+	return Intermediates.Normal;
+	#else
+	return float3(0.0, 0.0, 1.0);
+	#endif
+}
+
+float3 VertexFactoryGetWorldNormal(FPositionAndNormalOnlyVertexFactoryInput Input)
+{
+	return float3(0.0, 0.0, 1.0);
+}
+
+
+float4 VertexFactoryGetWorldPosition(FPositionOnlyVertexFactoryInput Input)
+{
+	float3 Position;
+	SetupVertex(Input, Position);
+
+	FLWCVector3 WorldPosition = LWCPromote(Position);
+	FLWCVector3 TranslatedWorldPosition = LWCAdd(WorldPosition, ResolvedView.PreViewTranslation);
+	return float4(LWCToFloat(TranslatedWorldPosition), 1.0f);
+
+	//return TransformLocalToTranslatedWorld(Input.Position.xyz);
 }
 
 #endif

@@ -16,3 +16,19 @@ void CalcNormalByCross(
 	, uint32 NumVertices
 	, uint32 NumTriangles
 );
+
+void CalcNormalAndTangent(
+	FRHICommandList& RHICmdList
+	, FShaderResourceViewRHIRef PositionBuffer
+	, FShaderResourceViewRHIRef IndexBuffer
+	, FShaderResourceViewRHIRef TexCoordBuffer
+	, FUnorderedAccessViewRHIRef OutputNormalBuffer
+	, FUnorderedAccessViewRHIRef OutputTangentBuffer
+	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionXBuffer
+	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionYBuffer
+	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionZBuffer
+	, uint32 WriteOffset
+	, uint32 PositionBufferOffset
+	, uint32 NumVertices
+	, uint32 NumTriangles
+);

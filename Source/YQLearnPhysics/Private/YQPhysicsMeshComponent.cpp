@@ -4,17 +4,23 @@
 #include "YQPhysicsMeshComponent.h"
 #include "YQPhysicsWorldSubsystem.h"
 
+#include "Materials/MaterialInstance.h"
+#include "Materials/MaterialInstanceConstant.h"
+
 
 FYQPhysicsMeshSceneProxy::FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent* InComponent, uint32 InBufferIndexOffset)
 	: FPrimitiveSceneProxy(InComponent)
 	, RenderData(InComponent->GetStaticMesh()->GetRenderData())
-	, VertexFactory(GetScene().GetFeatureLevel(), "FYQPhysicsVertexFactory")
+	, VertexFactory(InComponent->GetVertexFactory())
 	, BufferIndexOffset(InBufferIndexOffset)
 {
 	ERHIFeatureLevel::Type Level = GetScene().GetFeatureLevel();
 	//UE_LOG(LogTemp, Log, TEXT("Level %d %d"), (uint32)Level, (uint32)ERHIFeatureLevel::SM6)
 	FStaticMeshVertexBuffers* StaticMeshVertexBuffers = &RenderData->LODResources[0].VertexBuffers;
-	FYQPhysicsVertexFactory* InVertexFactory = &VertexFactory;
+
+
+
+	FYQPhysicsVertexFactory* InVertexFactory = VertexFactory;
 
 	uint32 InBufferIDOffset = BufferIndexOffset;
 
@@ -46,10 +52,6 @@ FYQPhysicsMeshSceneProxy::FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent
 
 	bSupportsGPUScene = false;
 
-	ENQUEUE_RENDER_COMMAND(YQPhysicsVertexFactoryInit)(
-		[this](FRHICommandListImmediate& RHICmdList) {
-		//VertexFactory.InitResource();
-	});
 
 	FYQPhysicsScene* PhysicsScene = InComponent->GetWorld()->GetSubsystem<UYQPhysicsWorldSubsystem>()->GetGPUPhysicsScene();
 	GPUPhysicsScene = PhysicsScene;
@@ -57,8 +59,8 @@ FYQPhysicsMeshSceneProxy::FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent
 
 FYQPhysicsMeshSceneProxy::~FYQPhysicsMeshSceneProxy()
 {
-	VertexFactory.ReleaseRHI();
-	VertexFactory.ReleaseResource();
+	/*VertexFactory.ReleaseRHI();
+	VertexFactory.ReleaseResource();*/
 }
 
 SIZE_T FYQPhysicsMeshSceneProxy::GetTypeHash() const {
@@ -101,7 +103,7 @@ void FYQPhysicsMeshSceneProxy::GetDynamicMeshElements(const TArray<const FSceneV
 				Mesh.Type = PT_TriangleList;
 				Mesh.bUseForMaterial = true;
 				Mesh.MaterialRenderProxy = MaterialRenderProxy;
-				Mesh.VertexFactory = &VertexFactory;
+				Mesh.VertexFactory = VertexFactory;
 				Mesh.LCI = nullptr;
 				Mesh.ReverseCulling = IsLocalToWorldDeterminantNegative();
 				Mesh.bUseForDepthPass = true;
@@ -160,6 +162,36 @@ FPrimitiveViewRelevance FYQPhysicsMeshSceneProxy::GetViewRelevance(const FSceneV
 	return Relevance;
 }
 
+FYQPhysicsMeshRenderDataProxy::FYQPhysicsMeshRenderDataProxy(const UYQPhysicsMeshComponent* InComponent) 
+	: IYQRenderSceneProxy()
+	, VertexFactory(InComponent->GetVertexFactory())
+{
+
+}
+
+void FYQPhysicsMeshRenderDataProxy::GetRenderDataRequest(FRenderDataRequestBatch& OutBatch) const
+{
+	if (VertexFactory != nullptr)
+	{
+		FUnorderedAccessViewRHIRef DynamicNormalBufferUAV = VertexFactory->GetDynamicNormalBufferUAV();
+		FUnorderedAccessViewRHIRef DynamicTangentBufferUAV = VertexFactory->GetDynamicTangentBufferUAV();
+		FShaderResourceViewRHIRef TexCoordBufferSRV = VertexFactory->TexCoordBufferSRV;
+
+		if (DynamicNormalBufferUAV && DynamicTangentBufferUAV && TexCoordBufferSRV)
+		{
+			OutBatch.Elements.AddZeroed(1);
+
+			FRenderDataRequest& Request = OutBatch.Elements[0];
+			Request.bNeedDynamicNormal = true;
+			Request.bNeedDynamicTangent = true;
+			Request.NormalBufferUAV = DynamicNormalBufferUAV;
+			Request.TangentBufferUAV = DynamicTangentBufferUAV;
+			Request.TexCoordBufferSRV = TexCoordBufferSRV;
+		}
+	}
+
+}
+
 FYQMeshPhysicsProxy::FYQMeshPhysicsProxy(const UYQPhysicsMeshComponent* InComponent) 
 	: FYQPhysicsProxy()
 	, bUseBendingConstraints(InComponent->bUseBendingConstraints)
@@ -191,12 +223,14 @@ FYQMeshPhysicsProxy::FYQMeshPhysicsProxy(const UYQPhysicsMeshComponent* InCompon
 	NumVertices = StaticMeshResourceLOD0.GetNumVertices();
 	int NumTriangles = StaticMeshResourceLOD0.GetNumTriangles();
 
-	BufferIndexOffset = 0;
+	//BufferIndexOffset = 0;
 	NumBufferElement = NumTriangles;
 
 	LocalToWorld = FMatrix44f(InComponent->GetComponentTransform().ToMatrixWithScale());
 
-	bIsRegisteredInGPUPhysicsScene = false;
+	//bIsRegisteredInGPUPhysicsScene = false;
+
+	
 }
 
 void FYQMeshPhysicsProxy::GetDynamicPhysicsConstraints(FConstraintsBatch& OutBatch) const 
@@ -290,22 +324,6 @@ void UYQPhysicsMeshComponent::SendRenderTransform_Concurrent()
 	Super::SendRenderTransform_Concurrent();
 }
 
-void UYQPhysicsMeshComponent::OnRep_StaticMesh(class UStaticMesh* OldStaticMesh)
-{
-	PRAGMA_DISABLE_DEPRECATION_WARNINGS
-		// Only do stuff if this actually changed from the last local value
-		if (OldStaticMesh != StaticMesh) 
-		{
-			// We have to force a call to SetStaticMesh with a new StaticMesh
-			UStaticMesh* NewStaticMesh = StaticMesh;
-			StaticMesh = OldStaticMesh;
-
-			SetStaticMesh(NewStaticMesh);
-		}
-	PRAGMA_ENABLE_DEPRECATION_WARNINGS
-
-		
-}
 void UYQPhysicsMeshComponent::GetLifetimeReplicatedProps(TArray< FLifetimeProperty >& OutLifetimeProps) const {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
@@ -317,13 +335,13 @@ UYQPhysicsMeshComponent::UYQPhysicsMeshComponent(const FObjectInitializer& Objec
 	: Super(ObjectInitializer) 
 	, bUseBendingConstraints(false)
 	, bUseDistanceBendingConstraints(false)
+	, VertexFactory(nullptr)
+	, GPUPhysicsProxy(nullptr)
 {
 	PrimaryComponentTick.bCanEverTick = true;
 
 	bTickInEditor = true;
 	IsCreateRenderStatePending = false;
-
-	GPUPhysicsProxy = nullptr;
 
 }
 
@@ -404,7 +422,8 @@ void UYQPhysicsMeshComponent::TickComponent(float DeltaTime, ELevelTick TickType
 		}
 		else if (ShouldCreateRenderState())
 		{
-			RecreateRenderState_Concurrent();
+			CreateVertexFactory();
+			CreateRenderState_Concurrent(nullptr);
 		}
 	}
 }
@@ -417,8 +436,35 @@ void UYQPhysicsMeshComponent::CreateRenderState_Concurrent(FRegisterComponentCon
 	// 因为渲染资源当前是使用统一buffer，所以在注册到PhysicsScene之后再添加到渲染场景
 	//LLM_SCOPE(ELLMTag::StaticMesh);
 	Super::CreateRenderState_Concurrent(Context);
+
+
+	
+	
 }
 
+
+void UYQPhysicsMeshComponent::CreateVertexFactory()
+{
+	VertexFactory = new FYQPhysicsVertexFactory(GetScene()->GetFeatureLevel(), "FYQPhysicsVertexFactory", GetStaticMesh()->GetRenderData());
+
+}
+
+
+void UYQPhysicsMeshComponent::DestroyVertexFactory()
+{
+	if (VertexFactory)
+	{
+		FYQPhysicsVertexFactory* VF = VertexFactory;
+		ENQUEUE_RENDER_COMMAND(UYQPhysicsMeshComponent_OnComponentDestroyed)(
+			[VF](FRHICommandListImmediate& RHICmdList)
+		{
+			VF->ReleaseRHI();
+			delete VF;
+		});
+
+		VertexFactory = nullptr;
+	}
+}
 
 bool UYQPhysicsMeshComponent::IsGPUPhysicsStateCreated() const
 {
@@ -463,6 +509,12 @@ bool UYQPhysicsMeshComponent::ShouldCreatePhysicsState() const
 	return false;
 }
 
+void UYQPhysicsMeshComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
+{
+	Super::OnComponentDestroyed(bDestroyingHierarchy);
+
+	DestroyVertexFactory();
+}
 
 void UYQPhysicsMeshComponent::CreateGPUPhysicsState()
 {
@@ -517,6 +569,10 @@ int32 UYQPhysicsMeshComponent::GetNumMaterials() const
 	}
 }
 
+FYQPhysicsVertexFactory* UYQPhysicsMeshComponent::GetVertexFactory() const
+{
+	return VertexFactory;
+}
 
 FBoxSphereBounds UYQPhysicsMeshComponent::CalcBounds(const FTransform& LocalToWorld) const 
 {
@@ -530,6 +586,16 @@ FPrimitiveSceneProxy* UYQPhysicsMeshComponent::CreateSceneProxy()
 	UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::CreateSceneProxy"))
 
 	FPrimitiveSceneProxy* Proxy = new FYQPhysicsMeshSceneProxy(this, GPUPhysicsProxy->BufferIndexOffset);
+
+	FYQPhysicsMeshRenderDataProxy* RenderDataProxy = new FYQPhysicsMeshRenderDataProxy(this);
+
+	GPUPhysicsProxy->RenderSceneProxy = (IYQRenderSceneProxy*)RenderDataProxy;
+
+	ENQUEUE_RENDER_COMMAND(UYQPhysicsMeshComponent_SetRenderSceneProxy)(
+		[=](FRHICommandListImmediate& RHICmdList)
+	{
+		GPUPhysicsProxy->bHasRenderSceneProxy = true;
+	});
 
 	return Proxy;
 }

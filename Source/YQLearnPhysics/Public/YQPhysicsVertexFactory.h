@@ -14,9 +14,10 @@ class YQLEARNPHYSICS_API FYQPhysicsVertexFactory : public FVertexFactory {
 	DECLARE_VERTEX_FACTORY_TYPE(FYQPhysicsVertexFactory);
 public:
 
-	FYQPhysicsVertexFactory(ERHIFeatureLevel::Type InFeatureLevel, const char* InDebugName)
+	FYQPhysicsVertexFactory(ERHIFeatureLevel::Type InFeatureLevel, const char* InDebugName, FStaticMeshRenderData* InRenderData)
 		: FVertexFactory(InFeatureLevel)
 		, DebugName(InDebugName)
+		, RenderData(InRenderData)
 	{
 	}
 
@@ -33,6 +34,12 @@ public:
 	virtual void InitRHI() override;
 	virtual void ReleaseRHI() override;
 
+
+	FUnorderedAccessViewRHIRef GetDynamicNormalBufferUAV();
+	FUnorderedAccessViewRHIRef GetDynamicTangentBufferUAV();
+	FShaderResourceViewRHIRef GetDynamicNormalBufferSRV();
+	FShaderResourceViewRHIRef GetDynamicTangentBufferSRV();
+
 	void SetData(const FStaticMeshDataType& InData);
 	
 	inline const FUniformBufferRHIRef GetUniformBuffer() const 
@@ -42,12 +49,18 @@ public:
 
 	inline void SetUniformBuffer();
 
+
+	FShaderResourceViewRHIRef TexCoordBufferSRV;
 	FUniformBufferRHIRef UniformBuffer;
 	uint32 BufferIDOffset;
 
 protected:
 
 	FStaticMeshDataType Data;
+	FStaticMeshRenderData* RenderData;
+
+	FRWBuffer DynamicNormalBuffer;
+	FRWBuffer DynamicTangentBuffer;
 
 	struct FDebugName 
 	{

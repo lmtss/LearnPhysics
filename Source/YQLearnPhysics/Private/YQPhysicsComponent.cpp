@@ -93,7 +93,7 @@ class FYQPhysicsSceneProxy final : public FPrimitiveSceneProxy
 public:
 	FYQPhysicsSceneProxy(const UYQPhysicsComponent* InComponent)
 		: FPrimitiveSceneProxy(InComponent, "FYQPhysicsSceneProxy")
-		, VertexFactory(GetScene().GetFeatureLevel(), "FYQPhysicsVertexFactory")
+		, VertexFactory(GetScene().GetFeatureLevel(), "FYQPhysicsVertexFactory", nullptr)
 		, SpherePos(InComponent->SpherePos)
 	{
 		ERHIFeatureLevel::Type Level = GetScene().GetFeatureLevel();

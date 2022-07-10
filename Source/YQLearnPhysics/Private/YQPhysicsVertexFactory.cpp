@@ -27,6 +27,7 @@ public:
 	{
 		PositionBufferParameter.Bind(ParameterMap, TEXT("PositionBuffer"));
 		NormalBufferParameter.Bind(ParameterMap, TEXT("NormalBuffer"));
+		TangentBufferParameter.Bind(ParameterMap, TEXT("TangentBuffer"));
 	}
 
 	void GetElementShaderBindings(
@@ -45,11 +46,16 @@ public:
 
 		FYQPhysicsUserData* UserData = (FYQPhysicsUserData*)BatchElement.UserData;
 		ShaderBindings.Add(PositionBufferParameter, UserData->PositionBuffer->SRV);
-		ShaderBindings.Add(NormalBufferParameter, UserData->NormalBuffer->SRV);
+		//ShaderBindings.Add(NormalBufferParameter, UserData->NormalBuffer->SRV);
+		ShaderBindings.Add(NormalBufferParameter, VF->GetDynamicNormalBufferSRV());
+		ShaderBindings.Add(TangentBufferParameter, VF->GetDynamicTangentBufferSRV());
+
+		//VF->GetDynamicTangentBufferUAV();
 	}
 
 	LAYOUT_FIELD(FShaderResourceParameter, PositionBufferParameter);
 	LAYOUT_FIELD(FShaderResourceParameter, NormalBufferParameter);
+	LAYOUT_FIELD(FShaderResourceParameter, TangentBufferParameter);
 };
 
 IMPLEMENT_TYPE_LAYOUT(FYQPhysicsVertexFactoryShaderParametersVS);
@@ -98,12 +104,13 @@ void FYQPhysicsVertexFactory::SetData(const FStaticMeshDataType& InData) {
 void FYQPhysicsVertexFactory::InitRHI()
 {
 
-
 	FYQPhysicsUniformParameters Parameters;
 	//Parameters.ClothStructureBuffer = StructuredVertexSRV;
 	Parameters.YQPhysicsVertexOffset = BufferIDOffset;
 	UniformBuffer = FYQPhysicsUniformBufferRef::CreateUniformBufferImmediate(Parameters, UniformBuffer_MultiFrame);
 
+
+	// ----------------- LocalVertexFactory -------------------
 	if (Data.PositionComponent.VertexBuffer != Data.TangentBasisComponents[0].VertexBuffer) {
 		auto AddDeclaration = [this](EVertexInputStreamType InputStreamType, bool bAddNormal) {
 			FVertexDeclarationElementList StreamElements;
@@ -184,12 +191,73 @@ void FYQPhysicsVertexFactory::InitRHI()
 
 	InitDeclaration(Elements);
 
+
+	// ---------- ¶¯Ì¬Buffer -------------
+	FStaticMeshLODResources& StaticMeshResourceLOD0 = RenderData->LODResources[0];
+
+	FStaticMeshSectionArray& StaticMeshSectionArray = StaticMeshResourceLOD0.Sections;
+
+	FRawStaticIndexBuffer& MeshIndexBuffer = StaticMeshResourceLOD0.IndexBuffer;
+
+	FStaticMeshVertexBuffers& MeshVertexBuffers = StaticMeshResourceLOD0.VertexBuffers;
+
+	int32 NumVertices = StaticMeshResourceLOD0.GetNumVertices();
+
+	DynamicNormalBuffer.Initialize(TEXT("DynamicNormalBuffer"), sizeof(uint32), NumVertices, PF_R8G8B8A8, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+	DynamicTangentBuffer.Initialize(TEXT("DynamicTangentBuffer"), sizeof(uint32), NumVertices, PF_R8G8B8A8, BUF_UnorderedAccess | BUF_ShaderResource, nullptr);
+
+	TexCoordBufferSRV = MeshVertexBuffers.StaticMeshVertexBuffer.GetTexCoordsSRV();
+	if (TexCoordBufferSRV == nullptr)
+	{
+
+	}
 }
 
 void FYQPhysicsVertexFactory::ReleaseRHI()
 {
 	UniformBuffer.SafeRelease();
 	FVertexFactory::ReleaseRHI();
+}
+
+
+FShaderResourceViewRHIRef FYQPhysicsVertexFactory::GetDynamicNormalBufferSRV()
+{
+	if (DynamicNormalBuffer.Buffer != nullptr)
+	{
+		return DynamicNormalBuffer.SRV;
+	}
+
+	return nullptr;
+}
+
+FShaderResourceViewRHIRef FYQPhysicsVertexFactory::GetDynamicTangentBufferSRV()
+{
+	if (DynamicTangentBuffer.Buffer != nullptr)
+	{
+		return DynamicTangentBuffer.SRV;
+	}
+
+	return nullptr;
+}
+
+FUnorderedAccessViewRHIRef FYQPhysicsVertexFactory::GetDynamicNormalBufferUAV()
+{
+	if (DynamicNormalBuffer.Buffer != nullptr)
+	{
+		return DynamicNormalBuffer.UAV;
+	}
+
+	return nullptr;
+}
+
+FUnorderedAccessViewRHIRef FYQPhysicsVertexFactory::GetDynamicTangentBufferUAV()
+{
+	if (DynamicTangentBuffer.Buffer != nullptr)
+	{
+		return DynamicTangentBuffer.UAV;
+	}
+
+	return nullptr;
 }
 
 IMPLEMENT_VERTEX_FACTORY_PARAMETER_TYPE(FYQPhysicsVertexFactory, SF_Vertex, FYQPhysicsVertexFactoryShaderParametersVS);

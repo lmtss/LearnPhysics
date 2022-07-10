@@ -29,17 +29,12 @@ class YQLEARNPHYSICS_API UYQPhysicsMeshComponent : public UMeshComponent
 	GENERATED_UCLASS_BODY()
 	
 private:
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = StaticMesh, ReplicatedUsing = OnRep_StaticMesh, meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = StaticMesh, meta = (AllowPrivateAccess = "true"))
 		TObjectPtr<class UStaticMesh> StaticMesh;
-
-	UFUNCTION()
-		void OnRep_StaticMesh(class UStaticMesh* OldStaticMesh);
 
 protected:
 
-	virtual void CreateRenderState_Concurrent(FRegisterComponentContext* Context) override;
-	virtual void SendRenderTransform_Concurrent() override;
-	virtual bool ShouldCreateRenderState() const override;
+	
 
 public:
 	UFUNCTION(BlueprintCallable, Category = "Components|StaticMesh")
@@ -52,21 +47,39 @@ public:
 		uint8 bUseDistanceBendingConstraints : 1;
 
 
+	//~ Begin UPrimitiveComponent Interface
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
-	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
-
-	virtual void OnRegister() override;
-
-	virtual void PostInitProperties() override;
-	virtual void PostLoad() override;
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
-
-	virtual void OnCreatePhysicsState() override;
-	virtual bool ShouldCreatePhysicsState() const override;
-
 	virtual int32 GetNumMaterials() const override;
 	virtual UMaterialInterface* GetMaterial(int32 MaterialIndex) const override;
 	virtual void GetUsedMaterials(TArray<UMaterialInterface*>& OutMaterials, bool bGetDebugMaterials = false) const override;
+	//~ End UPrimitiveComponent Interface
+
+	//~ Begin USceneComponent Interface
+	virtual FBoxSphereBounds CalcBounds(const FTransform& LocalToWorld) const override;
+	//~ End USceneComponent Interface
+
+
+	//~ Begin UActorComponent Interface
+	virtual void OnRegister() override;
+	virtual void OnCreatePhysicsState() override;
+	virtual void CreateRenderState_Concurrent(FRegisterComponentContext* Context) override;
+	virtual void SendRenderTransform_Concurrent() override;
+	virtual bool ShouldCreateRenderState() const override;
+	virtual bool ShouldCreatePhysicsState() const override;
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	virtual void OnComponentDestroyed(bool bDestroyingHierarchy) override;
+	//~ End UActorComponent Interface
+
+	//~ Begin UObject Interface.
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void PostInitProperties() override;
+	virtual void PostLoad() override;
+	//~ End UObject Interface.
+
+
+	
+
+	FYQPhysicsVertexFactory* GetVertexFactory() const;
 
 	TObjectPtr<UStaticMesh> GetStaticMesh() const
 	{
@@ -82,18 +95,22 @@ public:
 private:
 	FYQMeshPhysicsProxy* GPUPhysicsProxy;
 	bool IsCreateRenderStatePending;
+	FYQPhysicsVertexFactory* VertexFactory;
+
 
 
 	bool ShouldCreateGPUPhysicsState() const;
 	bool IsGPUPhysicsStateCreated() const;
 
 	void CreateGPUPhysicsState();
-
+	void CreateVertexFactory();
+	void DestroyVertexFactory();
 
 };
 
 
-class FYQPhysicsMeshSceneProxy final : public FPrimitiveSceneProxy {
+class FYQPhysicsMeshSceneProxy final : public FPrimitiveSceneProxy//, public IYQRenderSceneProxy
+{
 public:
 	FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent* InComponent, uint32 InBufferIndexOffset);
 
@@ -115,8 +132,9 @@ public:
 
 	virtual FPrimitiveViewRelevance GetViewRelevance(const FSceneView* View) const override;
 
+	//virtual void GetRenderDataRequest(FRenderDataRequestBatch& OutBatch) const override;
 
-	FYQPhysicsVertexFactory VertexFactory;
+	FYQPhysicsVertexFactory* VertexFactory;
 	FMaterialRenderProxy* MaterialRenderProxy;
 	FMaterialRelevance MaterialRelevance;
 
@@ -128,6 +146,17 @@ public:
 
 	FYQPhysicsScene* GPUPhysicsScene;
 
+};
+
+class FYQPhysicsMeshRenderDataProxy : public IYQRenderSceneProxy
+{
+public:
+
+	FYQPhysicsMeshRenderDataProxy(const UYQPhysicsMeshComponent* InComponent);
+	virtual void GetRenderDataRequest(FRenderDataRequestBatch& OutBatch) const override;
+
+
+	FYQPhysicsVertexFactory* VertexFactory;
 };
 
 

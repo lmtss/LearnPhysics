@@ -11,7 +11,8 @@
 #define NUM_MATERIAL_TEXCOORDS_VERTEX 0
 #endif
 
-
+#ifdef YQ_PHYSICS_CUSTOM_VS_IN_EDITOR
+#else
 
 struct FPositionAndNormalOnlyVertexFactoryInput
 {
@@ -41,8 +42,7 @@ struct FVertexFactoryInterpolantsVSToPS
 #endif
 };
 
-#ifdef YQ_PHYSICS_CUSTOM_VS_IN_EDITOR
-#else
+
 
 struct FVertexFactoryInput
 {
@@ -152,7 +152,7 @@ float4 CalcWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates 
 	return TransformLocalToTranslatedWorld(Intermediates.Position);
 }
 
-#endif
+
 
 float4 VertexFactoryGetWorldPosition(FVertexFactoryInput Input, FVertexFactoryIntermediates Intermediates)
 {
@@ -262,7 +262,7 @@ float4 VertexFactoryGetWorldPosition(FPositionOnlyVertexFactoryInput Input)
 	return TransformLocalToTranslatedWorld(Input.Position.xyz);
 }
 
-
+#endif
 
 /** for depth-only pass (slope depth bias) */
 float4 VertexFactoryGetWorldPosition(FPositionAndNormalOnlyVertexFactoryInput Input)
