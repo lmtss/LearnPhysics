@@ -20,27 +20,27 @@ FYQPhysicsMeshSceneProxy::FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent
 
 
 
-	FYQPhysicsVertexFactory* InVertexFactory = VertexFactory;
+	//FYQPhysicsVertexFactory* InVertexFactory = VertexFactory;
 
-	uint32 InBufferIDOffset = BufferIndexOffset;
+	//uint32 InBufferIDOffset = BufferIndexOffset;
 
-	ENQUEUE_RENDER_COMMAND(StaticMeshVertexBuffersLegacyBspInit)(
-		[InVertexFactory, StaticMeshVertexBuffers, InBufferIDOffset](FRHICommandListImmediate& RHICmdList) {
-		check(StaticMeshVertexBuffers->PositionVertexBuffer.IsInitialized());
-		check(StaticMeshVertexBuffers->StaticMeshVertexBuffer.IsInitialized());
+	//ENQUEUE_RENDER_COMMAND(StaticMeshVertexBuffersLegacyBspInit)(
+	//	[InVertexFactory, StaticMeshVertexBuffers, InBufferIDOffset](FRHICommandListImmediate& RHICmdList) {
+	//	check(StaticMeshVertexBuffers->PositionVertexBuffer.IsInitialized());
+	//	check(StaticMeshVertexBuffers->StaticMeshVertexBuffer.IsInitialized());
 
-		FLocalVertexFactory::FDataType Data;
-		StaticMeshVertexBuffers->PositionVertexBuffer.BindPositionVertexBuffer(InVertexFactory, Data);
-		StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindTangentVertexBuffer(InVertexFactory, Data);
-		StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindPackedTexCoordVertexBuffer(InVertexFactory, Data);
-		
-		InVertexFactory->BufferIDOffset = InBufferIDOffset;
-		
-		InVertexFactory->SetData(Data);
+	//	FLocalVertexFactory::FDataType Data;
+	//	StaticMeshVertexBuffers->PositionVertexBuffer.BindPositionVertexBuffer(InVertexFactory, Data);
+	//	StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindTangentVertexBuffer(InVertexFactory, Data);
+	//	StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindPackedTexCoordVertexBuffer(InVertexFactory, Data);
+	//	
+	//	InVertexFactory->BufferIDOffset = InBufferIDOffset;
+	//	
+	//	InVertexFactory->SetData(Data);
 
-		//InitOrUpdateResource(InVertexFactory);
-		InVertexFactory->InitResource();
-	});
+	//	//InitOrUpdateResource(InVertexFactory);
+	//	InVertexFactory->InitResource();
+	//});
 	
 
 
@@ -436,17 +436,35 @@ void UYQPhysicsMeshComponent::CreateRenderState_Concurrent(FRegisterComponentCon
 	// 因为渲染资源当前是使用统一buffer，所以在注册到PhysicsScene之后再添加到渲染场景
 	//LLM_SCOPE(ELLMTag::StaticMesh);
 	Super::CreateRenderState_Concurrent(Context);
-
-
-	
-	
 }
 
 
 void UYQPhysicsMeshComponent::CreateVertexFactory()
 {
+	FStaticMeshVertexBuffers* StaticMeshVertexBuffers = &GetStaticMesh()->GetRenderData()->LODResources[0].VertexBuffers;
+	uint32 InBufferIDOffset = GPUPhysicsProxy->BufferIndexOffset;
+
+
 	VertexFactory = new FYQPhysicsVertexFactory(GetScene()->GetFeatureLevel(), "FYQPhysicsVertexFactory", GetStaticMesh()->GetRenderData());
 
+	FYQPhysicsVertexFactory* InVertexFactory = VertexFactory;
+	ENQUEUE_RENDER_COMMAND(UYQPhysicsMeshComponent_CreateVertexFactory)(
+		[InVertexFactory, StaticMeshVertexBuffers, InBufferIDOffset](FRHICommandListImmediate& RHICmdList)
+	{
+		check(StaticMeshVertexBuffers->PositionVertexBuffer.IsInitialized());
+		check(StaticMeshVertexBuffers->StaticMeshVertexBuffer.IsInitialized());
+
+		FLocalVertexFactory::FDataType Data;
+		StaticMeshVertexBuffers->PositionVertexBuffer.BindPositionVertexBuffer(InVertexFactory, Data);
+		StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindTangentVertexBuffer(InVertexFactory, Data);
+		StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindPackedTexCoordVertexBuffer(InVertexFactory, Data);
+
+		InVertexFactory->BufferIDOffset = InBufferIDOffset;
+
+		InVertexFactory->SetData(Data);
+
+		InVertexFactory->InitResource();
+	});
 }
 
 
@@ -458,7 +476,7 @@ void UYQPhysicsMeshComponent::DestroyVertexFactory()
 		ENQUEUE_RENDER_COMMAND(UYQPhysicsMeshComponent_OnComponentDestroyed)(
 			[VF](FRHICommandListImmediate& RHICmdList)
 		{
-			VF->ReleaseRHI();
+			VF->ReleaseResource();
 			delete VF;
 		});
 
