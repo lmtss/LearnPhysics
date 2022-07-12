@@ -151,6 +151,7 @@ FYQPhysicsScene::FYQPhysicsScene()
 		[&](FRHICommandListImmediate& RHICmdList) {
 
 		ProxyListRenderThread.Reset(0);
+		WaitingReleaseProxyListRenderThread.Reset(0);
 
 		InitResource();
 		InitializeBuffer(RHICmdList);
@@ -379,12 +380,6 @@ void FYQPhysicsScene::UpdateGPUObjectTransform(FRHICommandList& RHICmdList)
 	UpdatedCPUObjectTransformsRenderThread.Reset();
 }
 
-// todo
-void FYQPhysicsScene::AllocateBufferMemory(uint32 IndexBufferLength, uint32 AllocateVertexBufferLength, FYQPhysicsSceneBufferEntry& OutEntry)
-{
-	OutEntry.IndexBufferOffset = 0;
-	OutEntry.VertexBufferOffset = 0;
-}
 
 void FYQPhysicsScene::CopyBufferToPhysicsScene(
 	FRHICommandList& RHICmdList
@@ -579,6 +574,12 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 			PhysicsSceneViewBufferSwap();
 
 			FYQPhysicsProxy* PhysicsProxy = Info.PhysicsProxy;
+			FYQPhysicsPrimitiveSceneInfo* PrimitiveSceneInfo = new FYQPhysicsPrimitiveSceneInfo(PhysicsProxy);
+			PhysicsProxy->PhysicsSceneInfo = PrimitiveSceneInfo;
+
+			PrimitiveSceneInfo->GPUPhysicsObjectEntry.ParticlePositionBufferOffset = BaseParticle;
+			PrimitiveSceneInfo->GPUPhysicsObjectEntry.NumParticles = Info.Count;
+
 			uint32 ProxyBaseParticle = BaseParticle;
 
 			PhysicsProxy->BufferIndexOffset = ProxyBaseParticle;
@@ -613,6 +614,8 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 
 		FYQPhysicsProxy* PhysicsProxy = Info.PhysicsProxy;
 
+		FYQPhysicsPrimitiveSceneInfo* PrimitiveSceneInfo = PhysicsProxy->PhysicsSceneInfo;
+
 		uint32 NumConstraintTypes = ConstraintsBatch.Elements.Num();
 
 		for (uint32 ElementIndex = 0; ElementIndex < NumConstraintTypes; ElementIndex++)
@@ -622,11 +625,15 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 			EConstraintType ConstraintType = BatchElement.Type;
 			EConstraintSourceType ConstraintSourceType = BatchElement.ConstraintSourceType;
 
+			FGPUConstraintsEntry& ConstraintsEntry = PrimitiveSceneInfo->GPUPhysicsObjectEntry.Constraints[(int)ConstraintType];
+
+			int NumConstraintsNew = 0;
+
 			if (ConstraintType == EConstraintType::Distance)
 			{
 				if (ConstraintSourceType == EConstraintSourceType::Mesh)
 				{
-					int NumConstraintsNew = GenerateDistanceConstraintsFromMesh(
+					NumConstraintsNew = GenerateDistanceConstraintsFromMesh(
 						RHICmdList
 						, DistanceConstraintsParticleAIDBuffer.UAV
 						, DistanceConstraintsParticleBIDBuffer.UAV
@@ -639,6 +646,7 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 						, PhysicsProxy->BufferIndexOffset
 					);
 
+					ConstraintsEntry.Offset = NumDistanceConstraintsInScene;
 					NumDistanceConstraintsInScene += NumConstraintsNew;
 				}
 			}
@@ -646,7 +654,7 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 			{
 				if (ConstraintSourceType == EConstraintSourceType::Mesh)
 				{
-					int NumConstraintsNew = GenerateDistanceBendingConstraintsFromMesh(
+					NumConstraintsNew = GenerateDistanceBendingConstraintsFromMesh(
 						RHICmdList
 						, DistanceConstraintsParticleAIDBuffer.UAV
 						, DistanceConstraintsParticleBIDBuffer.UAV
@@ -659,6 +667,9 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 						, PhysicsProxy->BufferIndexOffset
 					);
 
+					// 因为DistanceBending实际上就是存储在DistanceConstraints的Buffer中
+					ConstraintsEntry.Offset = NumDistanceConstraintsInScene;
+					
 					NumDistanceBendingConstraintsInScene += NumConstraintsNew;
 					NumDistanceConstraintsInScene += NumConstraintsNew;
 				}
@@ -667,7 +678,7 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 			{
 				if (ConstraintSourceType == EConstraintSourceType::Mesh)
 				{
-					int NumConstraintsNew = GenerateBendingConstraintsFromMesh(
+					NumConstraintsNew = GenerateBendingConstraintsFromMesh(
 						RHICmdList
 						, BendingConstraintsParticleAIDBuffer.UAV
 						, BendingConstraintsParticleBIDBuffer.UAV
@@ -682,9 +693,13 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 						, PhysicsProxy->BufferIndexOffset
 					);
 
+					ConstraintsEntry.Offset = NumBendingConstraintsInScene;
+
 					NumBendingConstraintsInScene += NumConstraintsNew;
 				}
 			}
+		
+			ConstraintsEntry.Num = NumConstraintsNew;
 		}
 	}
 
@@ -696,6 +711,70 @@ void FYQPhysicsScene::AddGPUObjectToBuffer(FRHICommandList& RHICmdList)
 }
 
 
+void FYQPhysicsScene::RemoveGPUObjectFromBuffer(FRHICommandList& RHICmdList)
+{
+	struct FMemoryEmprtyFragment
+	{
+		uint32 Offset;
+		uint32 Num;
+	};
+
+	TArray< TArray<FMemoryEmprtyFragment>> FragmentList;
+	FragmentList.AddZeroed((int)EConstraintType::Num);
+
+	for (FYQPhysicsProxy* Proxy : WaitingReleaseProxyListRenderThread)
+	{
+		FYQPhysicsPrimitiveSceneInfo* SceneInfo = Proxy->PhysicsSceneInfo;
+
+		FGPUPhysicsObjectEntry& GPUPhysicsObjectEntry = SceneInfo->GPUPhysicsObjectEntry;
+
+		for (int i = 0; i < (int)EConstraintType::Num; i++)
+		{
+			FGPUConstraintsEntry& ConstraintsEntry = GPUPhysicsObjectEntry.Constraints[i];
+			FMemoryEmprtyFragment Frag;
+			Frag.Offset = ConstraintsEntry.Offset;
+			Frag.Num = ConstraintsEntry.Num;
+
+			FragmentList[i].Add(Frag);
+		}
+
+		delete SceneInfo;
+		delete Proxy;
+	}
+
+	struct FConstraintsMoveCommand
+	{
+		uint32 SrcStartIndex;
+		uint32 DestStartIndex;
+		uint32 Num;
+	};
+
+	TArray< TArray<FConstraintsMoveCommand>> CommandLists;
+	CommandLists.AddZeroed((int)EConstraintType::Num);
+
+	for (int IntConstraintType = 0; IntConstraintType < (int)EConstraintType::Num; IntConstraintType++)
+	{
+		TArray<FMemoryEmprtyFragment>& Fragments = FragmentList[IntConstraintType];
+		Fragments.Sort([](const FMemoryEmprtyFragment& Frag1, const FMemoryEmprtyFragment& Frag2)
+		{
+			return  Frag1.Offset < Frag2.Offset;
+		});
+
+		TArray<FConstraintsMoveCommand>& CommandList = CommandLists[IntConstraintType];
+
+		// 求前缀和
+		uint32 SumOffset = 0;
+		for (FMemoryEmprtyFragment& Frag : Fragments)
+		{
+			FConstraintsMoveCommand Command;
+			Command.SrcStartIndex = Frag.Offset + Frag.Num;
+			Command.DestStartIndex = Frag.Offset;
+			Command.Num = Frag.Num;
+		}
+	}
+
+	WaitingReleaseProxyListRenderThread.Reset(0);
+}
 
 
 void FYQPhysicsScene::AddPhysicsProxyToScene_RenderThread(FRHICommandList& RHICmdList, FYQPhysicsProxy* Proxy)
@@ -919,5 +998,35 @@ void FYQPhysicsScene::ClearConstraints()
 void FYQPhysicsScene::RemovePhysicsProxyFromScene(FYQPhysicsProxy* Proxy)
 {
 	ProxyList.Remove(Proxy);
+
+	FYQPhysicsScene* Scene = this;
+	FYQPhysicsProxy* GPUPhysicsProxy = Proxy;
+
+	ENQUEUE_RENDER_COMMAND(UYQPhysicsMeshComponent_PhysicsProxy)(
+		[Scene, GPUPhysicsProxy](FRHICommandListImmediate& RHICmdList)
+	{
+		Scene->RemovePhysicsProxyToScene_RenderThread(RHICmdList, GPUPhysicsProxy);
+	});
 }
 
+
+void FYQPhysicsScene::RemovePhysicsProxyToScene_RenderThread(FRHICommandList& RHICmdList, FYQPhysicsProxy* Proxy)
+{
+	check(IsInRenderingThread());
+
+	ProxyListRenderThread.Remove(Proxy);
+
+	WaitingReleaseProxyListRenderThread.AddUnique(Proxy);
+
+	/*FGPUPhysicsObjectEntry ObjectFreeCommand;
+	ObjectFreeCommand.ParticlePositionBufferOffset = Proxy->BufferIndexOffset;
+	ObjectFreeCommand.NumParticles = Proxy->NumVertices;
+	auto& ConstraintsFreeCommands = ObjectFreeCommand.Constraints;*/
+
+	
+}
+
+FYQPhysicsPrimitiveSceneInfo::FYQPhysicsPrimitiveSceneInfo(FYQPhysicsProxy* InPhysicsProxy)
+{
+
+}

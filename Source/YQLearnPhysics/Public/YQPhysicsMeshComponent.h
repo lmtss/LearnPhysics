@@ -103,6 +103,8 @@ private:
 	bool IsGPUPhysicsStateCreated() const;
 
 	void CreateGPUPhysicsState();
+	void DestroyGPUPhysicsState();
+
 	void CreateVertexFactory();
 	void DestroyVertexFactory();
 

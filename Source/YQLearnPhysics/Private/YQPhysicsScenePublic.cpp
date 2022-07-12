@@ -159,6 +159,7 @@ void FYQPhysicsScene::Tick(FRHICommandList& RHICmdList)
 	// 流压缩
 
 	
+	RemoveGPUObjectFromBuffer(RHICmdList);
 
 	// append 新的物体
 	AddGPUObjectToBuffer(RHICmdList);

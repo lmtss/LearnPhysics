@@ -61,6 +61,20 @@ struct FGPUPhysicsObjectAllocInfo
 	};
 };
 
+struct FGPUConstraintsEntry
+{
+	uint32 Offset = 0;
+	uint32 Num = 0;
+};
+
+struct FGPUPhysicsObjectEntry
+{
+	uint32 ParticlePositionBufferOffset;
+	uint32 NumParticles;
+
+	FGPUConstraintsEntry Constraints[(int)EConstraintType::Num];
+};
+
 class FYQPhysicsScene
 {
 
@@ -218,12 +232,9 @@ private:
 	void InitializeBuffer(FRHICommandList& RHICmdList);
 
 	void AddPhysicsProxyToScene_RenderThread(FRHICommandList& RHICmdList, FYQPhysicsProxy* Proxy);
+	void RemovePhysicsProxyToScene_RenderThread(FRHICommandList& RHICmdList, FYQPhysicsProxy* Proxy);
 
-	// 申请一段空间
-	void AllocateBufferMemory(uint32 IndexBufferLength, uint32 VertexBufferLength, FYQPhysicsSceneBufferEntry& OutEntry);
 
-	//void AllocGPUObjectMemory
-	
 	void CopyBufferToPhysicsScene(
 		FRHICommandList& RHICmdList
 		, FBufferRHIRef IndexBufferRHI, FBufferRHIRef VertexBufferRHI, FYQPhysicsSceneBufferEntry Entry
@@ -235,6 +246,7 @@ private:
 	void AddGPUObject(FGPUPhysicsObjectAllocInfo& Info);
 
 	void AddGPUObjectToBuffer(FRHICommandList& RHICmdList);
+	void RemoveGPUObjectFromBuffer(FRHICommandList& RHICmdList);
 
 	void InitResource();
 	void ReleaseResource();
@@ -290,6 +302,7 @@ private:
 	// 物理代理
 	TArray<FYQPhysicsProxy*> ProxyList;
 	TArray<FYQPhysicsProxy*> ProxyListRenderThread;
+	TArray<FYQPhysicsProxy*> WaitingReleaseProxyListRenderThread;
 
 	TMap<FYQPhysicsProxy*, FUpdateGPUObjectTransformCommand> UpdatedGPUObjectTransformsRenderThread;
 
@@ -368,3 +381,13 @@ struct FPhysicsSceneView
 
 };
 
+
+class FYQPhysicsPrimitiveSceneInfo
+{
+	friend class FYQPhysicsScene;
+public:
+	FYQPhysicsPrimitiveSceneInfo(FYQPhysicsProxy* InPhysicsProxy);
+
+private:
+	FGPUPhysicsObjectEntry GPUPhysicsObjectEntry;
+};

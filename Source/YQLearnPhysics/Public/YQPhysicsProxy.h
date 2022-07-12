@@ -5,6 +5,9 @@
 #include "Constraints.h"
 #include "Collision.h"
 
+class FYQPhysicsPrimitiveSceneInfo;
+class FYQPhysicsScene;
+
 // 
 struct FYQPhysicsSceneBufferEntry 
 {
@@ -90,6 +93,7 @@ public:
 // 尽可能不存储图形资源
 class FYQPhysicsProxy
 {
+    friend class FYQPhysicsScene;
 public:
     FYQPhysicsProxy();
 
@@ -130,4 +134,5 @@ public:
 
 private:
 
+    FYQPhysicsPrimitiveSceneInfo* PhysicsSceneInfo;
 };

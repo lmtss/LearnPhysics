@@ -14,53 +14,20 @@ FYQPhysicsMeshSceneProxy::FYQPhysicsMeshSceneProxy(const UYQPhysicsMeshComponent
 	, VertexFactory(InComponent->GetVertexFactory())
 	, BufferIndexOffset(InBufferIndexOffset)
 {
-	ERHIFeatureLevel::Type Level = GetScene().GetFeatureLevel();
-	//UE_LOG(LogTemp, Log, TEXT("Level %d %d"), (uint32)Level, (uint32)ERHIFeatureLevel::SM6)
-	FStaticMeshVertexBuffers* StaticMeshVertexBuffers = &RenderData->LODResources[0].VertexBuffers;
 
-
-
-	//FYQPhysicsVertexFactory* InVertexFactory = VertexFactory;
-
-	//uint32 InBufferIDOffset = BufferIndexOffset;
-
-	//ENQUEUE_RENDER_COMMAND(StaticMeshVertexBuffersLegacyBspInit)(
-	//	[InVertexFactory, StaticMeshVertexBuffers, InBufferIDOffset](FRHICommandListImmediate& RHICmdList) {
-	//	check(StaticMeshVertexBuffers->PositionVertexBuffer.IsInitialized());
-	//	check(StaticMeshVertexBuffers->StaticMeshVertexBuffer.IsInitialized());
-
-	//	FLocalVertexFactory::FDataType Data;
-	//	StaticMeshVertexBuffers->PositionVertexBuffer.BindPositionVertexBuffer(InVertexFactory, Data);
-	//	StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindTangentVertexBuffer(InVertexFactory, Data);
-	//	StaticMeshVertexBuffers->StaticMeshVertexBuffer.BindPackedTexCoordVertexBuffer(InVertexFactory, Data);
-	//	
-	//	InVertexFactory->BufferIDOffset = InBufferIDOffset;
-	//	
-	//	InVertexFactory->SetData(Data);
-
-	//	//InitOrUpdateResource(InVertexFactory);
-	//	InVertexFactory->InitResource();
-	//});
-	
-
-
-	
 	UMaterialInterface* MaterialInterface = InComponent->GetMaterial(0);
 	MaterialRenderProxy = MaterialInterface->GetRenderProxy();
-
 	MaterialRelevance = MaterialInterface->GetRelevance_Concurrent(GetScene().GetFeatureLevel());
-
-	bSupportsGPUScene = false;
-
 
 	FYQPhysicsScene* PhysicsScene = InComponent->GetWorld()->GetSubsystem<UYQPhysicsWorldSubsystem>()->GetGPUPhysicsScene();
 	GPUPhysicsScene = PhysicsScene;
+
+	bSupportsGPUScene = false;
 }
 
 FYQPhysicsMeshSceneProxy::~FYQPhysicsMeshSceneProxy()
 {
-	/*VertexFactory.ReleaseRHI();
-	VertexFactory.ReleaseResource();*/
+
 }
 
 SIZE_T FYQPhysicsMeshSceneProxy::GetTypeHash() const {
@@ -538,11 +505,18 @@ void UYQPhysicsMeshComponent::CreateGPUPhysicsState()
 {
 	UE_LOG(LogTemp, Log, TEXT("UYQPhysicsMeshComponent::OnCreatePhysicsState"));
 	UWorld* World = GetWorld();
-	FYQPhysicsScene* Scene = World->GetSubsystem<UYQPhysicsWorldSubsystem>()->GetGPUPhysicsScene();
+	FYQPhysicsScene* PhysicsScene = World->GetSubsystem<UYQPhysicsWorldSubsystem>()->GetGPUPhysicsScene();
 
 	// ע�ᵽPhysicsScene
 	GPUPhysicsProxy = new FYQMeshPhysicsProxy(this);
-	Scene->AddPhysicsProxyToScene(GPUPhysicsProxy);
+	PhysicsScene->AddPhysicsProxyToScene(GPUPhysicsProxy);
+}
+
+void UYQPhysicsMeshComponent::DestroyGPUPhysicsState()
+{
+	FYQPhysicsScene* PhysicsScene = GetWorld()->GetSubsystem<UYQPhysicsWorldSubsystem>()->GetGPUPhysicsScene();
+	PhysicsScene->RemovePhysicsProxyFromScene(GPUPhysicsProxy);
+	GPUPhysicsProxy = nullptr;
 }
 
 void UYQPhysicsMeshComponent::OnCreatePhysicsState()
