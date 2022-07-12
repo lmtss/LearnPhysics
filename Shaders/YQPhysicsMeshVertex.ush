@@ -92,20 +92,13 @@ void SetupVertex(FPositionOnlyVertexFactoryInput Input, out float3 OutPosition)
 
 half3x3 CalcTangentToWorld(half3 WorldNormal, half4 TangentWithW, inout half TangentSign)
 {
-	half3 TangentInputX = TangentWithW.xyz;
-	half4 TangentInputZ = half4(WorldNormal, TangentWithW.w);
-
-	half3 TangentX = TangentBias(TangentInputX);
-	half4 TangentZ = TangentBias(TangentInputZ);
+	half3 TangentX = TangentBias(TangentWithW.xyz);
+	half3 TangentZ = TangentBias(WorldNormal);
 
 	TangentSign = TangentZ.w;
 
-	// derive the binormal by getting the cross product of the normal and tangent
 	half3 TangentY = cross(TangentZ.xyz, TangentX) * TangentZ.w;
 	
-	// Recalculate TangentX off of the other two vectors
-	// This corrects quantization error since TangentX was passed in as a quantized vertex input
-	// The error shows up most in specular off of a mesh with a smoothed UV seam (normal is smooth, but tangents vary across the seam)
 	half3x3 Result;
 	Result[0] = cross(TangentY, TangentZ.xyz) * TangentZ.w;
 	Result[1] = TangentY;

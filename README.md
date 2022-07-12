@@ -10,9 +10,10 @@
   - [ ] GPU上的Mesh Connected Component Label
 - [ ] 组件的PhysicsState的摧毁
 - [ ] 每个物体独立的重力参数
-- [ ] 支持风力
+- [ ] 支持简单的风力
   - [ ] 支持场景内方向风施加一个均一的影响
   - [ ] 支持场景内不同位置不同风力影响
+- [ ] 类似战神4的风力场
 - [ ] 类Flex的Shape Matching
   - [ ] GPU上的Mesh体素化
   - [ ] GPU构建SDF
