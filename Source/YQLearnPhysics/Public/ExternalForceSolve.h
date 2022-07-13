@@ -12,7 +12,9 @@ void UpdateExternalForce(
 	, FUnorderedAccessViewRHIRef OutputPosition
 	, FShaderResourceViewRHIRef MaskBuffer
 	, FUnorderedAccessViewRHIRef VelocityBuffer
-	, uint32 Length
+	, float GravityScale
+	, uint32 OffsetParticles
+	, uint32 NumParticles
 	, float DeltaTime
 );
 

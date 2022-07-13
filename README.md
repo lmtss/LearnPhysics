@@ -8,8 +8,8 @@
   - [ ] 基于帧率和Dt修正
 - [ ] Long Range Attachments
   - [ ] GPU上的Mesh Connected Component Label
-- [ ] 组件的PhysicsState的摧毁
-- [ ] 每个物体独立的重力参数
+- [x] 组件的PhysicsState的摧毁
+- [x] 每个物体独立的重力参数(单纯的开启或关闭)
 - [ ] 支持简单的风力
   - [ ] 支持场景内方向风施加一个均一的影响
   - [ ] 支持场景内不同位置不同风力影响
@@ -22,6 +22,7 @@
   - [x] 动态计算切线
 - [ ] 使用RDG重写
   - [ ] 使用RDG实现一遍gpu radix sort
+- [ ] 完善场景数据的管理
 # 模拟器类
 使用了UE提供的WorldSubSystem实现了两个生命周期托管到引擎的单例类，PhyscisScene
 和PhysicsSimulator，每一次tick时，PhyscisScene首先会整理各种Object的数据，遍历待加入到GPU场景的物体的列表，通过计算着色器将物体的数据写入到各种buffer中，比如位置buffer，同时根据需求产生约束。   

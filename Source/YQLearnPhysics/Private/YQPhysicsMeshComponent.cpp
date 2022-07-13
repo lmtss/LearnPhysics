@@ -197,7 +197,7 @@ FYQMeshPhysicsProxy::FYQMeshPhysicsProxy(const UYQPhysicsMeshComponent* InCompon
 
 	//bIsRegisteredInGPUPhysicsScene = false;
 
-	
+	bEnableGravity = InComponent->IsGravityEnabled();
 }
 
 void FYQMeshPhysicsProxy::GetDynamicPhysicsConstraints(FConstraintsBatch& OutBatch) const 

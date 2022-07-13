@@ -21,6 +21,7 @@ public:
 		SHADER_PARAMETER_SRV(Buffer<uint>, MaskBuffer)
 		SHADER_PARAMETER(FVector4f, ExternalForceParams)
 		SHADER_PARAMETER(FVector4f, WindParams)
+		SHADER_PARAMETER(uint32, OffsetParticles)
 		SHADER_PARAMETER(uint32, NumParticles)
 		END_SHADER_PARAMETER_STRUCT()
 
@@ -51,6 +52,8 @@ void UpdateExternalForce(
 	, FUnorderedAccessViewRHIRef OutputPosition
 	, FShaderResourceViewRHIRef MaskBuffer
 	, FUnorderedAccessViewRHIRef VelocityBuffer
+	, float GravityScale
+	, uint32 OffsetParticles
 	, uint32 NumParticles
 	, float DeltaTime
 )
@@ -72,9 +75,10 @@ void UpdateExternalForce(
 	PassParameters.OutputPositionBuffer = OutputPosition;
 	PassParameters.MaskBuffer = MaskBuffer;
 	PassParameters.VelocityBuffer = VelocityBuffer;
-	PassParameters.ExternalForceParams = FVector4f(9.8 * 100, DeltaTime, 0.0, 0.0);
+	PassParameters.ExternalForceParams = FVector4f(9.8 * 100 * GravityScale, DeltaTime, 0.0, 0.0);
 	PassParameters.WindParams = FVector4f(0.0, 1.0, 0.0, 0.0);
 	PassParameters.NumParticles = NumParticles;
+	PassParameters.OffsetParticles = OffsetParticles;
 
 	SetShaderParameters(RHICmdList, ComputeShader, ComputeShader.GetComputeShader(), PassParameters);
 	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);

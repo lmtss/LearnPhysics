@@ -131,16 +131,21 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 	{
 		CopyPositionForCollision(RHICmdList, PhysicsScene->GetPositionBuffer().SRV, OrignalPositionBuffer.UAV, NumParticles);
 
-		UpdateExternalForce(
-			RHICmdList
-			, PhysicsScene->GetPositionBuffer().SRV
-			, NormalBuffer.SRV
-			, PhysicsScene->GetOutputPositionBuffer().UAV
-			, VertexMaskBuffer.SRV
-			, VelocityBuffer.UAV
-			, NumParticles
-			, SubstepTime
-		);
+		for (FYQPhysicsProxy* Proxy : ProxyList)
+		{
+			UpdateExternalForce(
+				RHICmdList
+				, PhysicsScene->GetPositionBuffer().SRV
+				, NormalBuffer.SRV
+				, PhysicsScene->GetOutputPositionBuffer().UAV
+				, VertexMaskBuffer.SRV
+				, VelocityBuffer.UAV
+				, Proxy->bEnableGravity ? 1.0 : 0.0
+				, Proxy->BufferIndexOffset
+				, Proxy->NumVertices
+				, SubstepTime
+			);
+		}
 
 		PhysicsScene->SwapBuffer();
 

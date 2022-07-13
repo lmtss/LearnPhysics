@@ -14,26 +14,29 @@ float4 ExternalForceParams;
 float4 WindParams;
 
 uint NumParticles;
+uint OffsetParticles;
 
 [numthreads(THREAD_COUNT, 1, 1)]
 void MainCS(uint3 ThreadId : SV_DispatchThreadID)
 {
     if (ThreadId.x >= NumParticles)return;
 
-    uint Mask = MaskBuffer[ThreadId.x];
+    uint ParticleID = OffsetParticles + ThreadId.x;
+
+    uint Mask = MaskBuffer[ParticleID];
     uint IsFixed = IsParticleFixed(Mask);
 
     if (IsFixed == 0)
     {
-        //float3 Normal = NormalBuffer[ThreadId.x].xyz;
-        float3 Velocity = VelocityBuffer[ThreadId.x].xyz;
+        //float3 Normal = NormalBuffer[ParticleID].xyz;
+        float3 Velocity = VelocityBuffer[ParticleID].xyz;
         float g = ExternalForceParams.x;
         float DeltaTime = ExternalForceParams.y;
 
         //Velocity += abs(dot(WindParams.xyz, Normal)) * WindParams.xyz * WindParams.w * DeltaTime;
 
-        float3 Position = InputPositionBuffer[ThreadId.x].rgb;
-        OutputPositionBuffer[ThreadId.x] = float4(Position + Velocity * DeltaTime, 0.0);
+        float3 Position = InputPositionBuffer[ParticleID].rgb;
+        OutputPositionBuffer[ParticleID] = float4(Position + Velocity * DeltaTime, 0.0);
 
         Velocity *= 0.95;
         Velocity.z -= g * DeltaTime;
@@ -41,13 +44,13 @@ void MainCS(uint3 ThreadId : SV_DispatchThreadID)
         Velocity = clamp(Velocity, -MAX_SPEED_LIMIT, MAX_SPEED_LIMIT);
 
 
-        //OutputPositionBuffer[ThreadId.x] = float4(Position, 0.0);
-        VelocityBuffer[ThreadId.x] = half4(Velocity, 1.0);
+        //OutputPositionBuffer[ParticleID] = float4(Position, 0.0);
+        VelocityBuffer[ParticleID] = half4(Velocity, 1.0);
     }
     else
     {
-        OutputPositionBuffer[ThreadId.x] = InputPositionBuffer[ThreadId.x];
-        VelocityBuffer[ThreadId.x] = half4(0, 0, 0, 1.0);
+        OutputPositionBuffer[ParticleID] = InputPositionBuffer[ParticleID];
+        VelocityBuffer[ParticleID] = half4(0, 0, 0, 1.0);
     }
 }
 

@@ -103,6 +103,7 @@ public:
             uint64 bIsIndexBuffer32 : 1;
             uint64 bIsRegisteredInGPUPhysicsScene : 1;
             uint64 bHasRenderSceneProxy : 1;
+            uint64 bEnableGravity : 1;
 		};
 	};
 
@@ -131,6 +132,9 @@ public:
     // 获取碰撞相关信息
     // 目前用来给静态网格生成BVH
     virtual void GetCollisionInfo(FYQCollisionInfo& OutInfo) const {};
+
+
+
 
 private:
 

@@ -5,6 +5,7 @@ FYQPhysicsProxy::FYQPhysicsProxy()
 , BufferIndexOffset(0)
 , bIsRegisteredInGPUPhysicsScene(false)
 , bHasRenderSceneProxy(false)
+, bEnableGravity(false)
 , PhysicsSceneInfo(nullptr)
 
 {
