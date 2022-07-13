@@ -744,8 +744,8 @@ void FYQPhysicsScene::RemoveGPUObjectFromBuffer(FRHICommandList& RHICmdList)
 
 	struct FConstraintsMoveCommand
 	{
-		uint32 SrcStartIndex;
-		uint32 DestStartIndex;
+		uint32 SrcIndex;
+		uint32 DestIndex;
 		uint32 Num;
 	};
 
@@ -754,6 +754,12 @@ void FYQPhysicsScene::RemoveGPUObjectFromBuffer(FRHICommandList& RHICmdList)
 
 	for (int IntConstraintType = 0; IntConstraintType < (int)EConstraintType::Num; IntConstraintType++)
 	{
+		if (EConstraintType(IntConstraintType) == EConstraintType::DistanceBending)
+		{
+			// DistanceBending 没有自己的Buffer
+			continue;
+		}
+
 		TArray<FMemoryEmprtyFragment>& Fragments = FragmentList[IntConstraintType];
 		Fragments.Sort([](const FMemoryEmprtyFragment& Frag1, const FMemoryEmprtyFragment& Frag2)
 		{
@@ -761,17 +767,101 @@ void FYQPhysicsScene::RemoveGPUObjectFromBuffer(FRHICommandList& RHICmdList)
 		});
 
 		TArray<FConstraintsMoveCommand>& CommandList = CommandLists[IntConstraintType];
+		uint32 NumConstraints = GetNumConstraints(EConstraintType(IntConstraintType));
 
 		// 求前缀和
-		uint32 SumOffset = 0;
+		uint32 SumDeleteConstraints = 0;
+		uint32 PrevFragEnd = 0;
 		for (FMemoryEmprtyFragment& Frag : Fragments)
 		{
-			FConstraintsMoveCommand Command;
-			Command.SrcStartIndex = Frag.Offset + Frag.Num;
-			Command.DestStartIndex = Frag.Offset;
-			Command.Num = Frag.Num;
+			if (CommandList.Num() == 0)	// 第一个Frag
+			{
+				FConstraintsMoveCommand Command;
+				Command.SrcIndex = Frag.Offset + Frag.Num;
+				Command.DestIndex = Frag.Offset;
+				Command.Num = NumConstraints - Command.SrcIndex;
+
+				CommandList.Add(Command);
+			}
+			else
+			{
+				FConstraintsMoveCommand& PrevCommand = CommandList[CommandList.Num() - 1];
+
+				if (PrevFragEnd == Frag.Offset)	// 连续的两个Free的空间
+				{
+					PrevCommand.Num -= Frag.Num;
+					PrevCommand.SrcIndex += Frag.Num;
+				}
+				else
+				{
+					PrevCommand.Num = Frag.Offset - PrevFragEnd;
+
+					FConstraintsMoveCommand Command;
+					Command.SrcIndex = Frag.Offset + Frag.Num;
+					Command.DestIndex = Frag.Offset - SumDeleteConstraints;
+					Command.Num = NumConstraints - Command.SrcIndex;
+
+					CommandList.Add(Command);
+				}
+			}
+
+			SumDeleteConstraints += Frag.Num;
+			
+			PrevFragEnd = Frag.Offset + Frag.Num;
+		}
+	
+		NumConstraintsList[IntConstraintType] -= SumDeleteConstraints;
+	}
+
+	// 距离约束
+	/*{
+		FRHIUnorderedAccessView* BufferList[] = {
+		GetDistanceConstraintsParticleAIDBuffer().UAV.GetReference()
+		, GetDistanceConstraintsParticleBIDBuffer().UAV.GetReference()
+		, GetDistanceConstraintsDistanceBuffer().UAV.GetReference()
+		};
+
+		EPixelFormat FormatList[] = { PF_R32_UINT, PF_R32_UINT, PF_R32_FLOAT };
+
+		MoveConstraintsBuffer(RHICmdList, BufferList, FormatList, 3);
+	}*/
+
+	{
+		TArray<FConstraintsMoveCommand>& CommandList = CommandLists[(int)EConstraintType::Distance];
+		for (FConstraintsMoveCommand& Command : CommandList)
+		{
+			MoveConstraintsBuffer(
+				RHICmdList
+				, GetDistanceConstraintsParticleAIDBuffer().UAV
+				, GetDistanceConstraintsParticleBIDBuffer().UAV
+				, GetDistanceConstraintsDistanceBuffer().UAV
+				, Command.SrcIndex
+				, Command.DestIndex
+				, Command.Num
+			);
 		}
 	}
+
+	{
+		TArray<FConstraintsMoveCommand>& CommandList = CommandLists[(int)EConstraintType::Bending];
+		for (FConstraintsMoveCommand& Command : CommandList)
+		{
+			MoveConstraintsBuffer(
+				RHICmdList
+				, GetBendingConstraintsParticleAIDBuffer().UAV
+				, GetBendingConstraintsParticleBIDBuffer().UAV
+				, GetBendingConstraintsParticleCIDBuffer().UAV
+				, GetBendingConstraintsParticleDIDBuffer().UAV
+				, GetBendingConstraintsAngleBuffer().UAV
+				, Command.SrcIndex
+				, Command.DestIndex
+				, Command.Num
+			);
+		}
+	}
+
+	
+	
 
 	WaitingReleaseProxyListRenderThread.Reset(0);
 }

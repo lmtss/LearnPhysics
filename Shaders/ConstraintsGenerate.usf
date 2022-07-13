@@ -701,3 +701,93 @@ void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, 
 
 
 #endif
+
+
+
+
+
+
+
+
+#if MOVE_CONSTRAINTS_BUFFER
+
+#if NUM_UINT_BUFFER > 0
+RWBuffer<uint> UintParamBuffer0;
+#endif
+
+#if NUM_UINT_BUFFER > 1
+RWBuffer<uint> UintParamBuffer1;
+#endif
+
+#if NUM_UINT_BUFFER > 2
+RWBuffer<uint> UintParamBuffer2;
+#endif
+
+#if NUM_UINT_BUFFER > 3
+RWBuffer<uint> UintParamBuffer3;
+#endif
+
+#if NUM_HALF_BUFFER > 0
+RWBuffer<half> HalfParamBuffer0;
+#endif
+
+#if NUM_HALF_BUFFER > 1
+RWBuffer<half> HalfParamBuffer1;
+#endif
+
+#if NUM_FLOAT_BUFFER > 0
+RWBuffer<float> FloatParamBuffer0;
+#endif
+
+#if NUM_FLOAT_BUFFER > 1
+RWBuffer<float> FloatParamBuffer1;
+#endif
+
+uint SrcIndex;
+uint DestIndex;
+uint NumConstraints;
+
+[numthreads(THREAD_COUNT, 1, 1)]
+void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	uint ThreadID = DispatchThreadId.x;
+
+	if (ThreadID >= NumConstraints)return;
+
+	uint ReadOffset = SrcIndex + ThreadID;
+	uint WriteOffset = DestIndex + ThreadID;
+
+#if NUM_UINT_BUFFER > 0
+	UintParamBuffer0[WriteOffset] = UintParamBuffer0[ReadOffset];
+#endif
+
+#if NUM_UINT_BUFFER > 1
+	UintParamBuffer1[WriteOffset] = UintParamBuffer1[ReadOffset];
+#endif
+
+#if NUM_UINT_BUFFER > 2
+	UintParamBuffer2[WriteOffset] = UintParamBuffer2[ReadOffset];
+#endif
+
+#if NUM_UINT_BUFFER > 3
+	UintParamBuffer3[WriteOffset] = UintParamBuffer3[ReadOffset];
+#endif
+
+#if NUM_HALF_BUFFER > 0
+	HalfParamBuffer0[WriteOffset] = HalfParamBuffer0[ReadOffset];
+#endif
+
+#if NUM_HALF_BUFFER > 1
+	HalfParamBuffer1[WriteOffset] = HalfParamBuffer1[ReadOffset];
+#endif
+
+#if NUM_FLOAT_BUFFER > 0
+	FloatParamBuffer0[WriteOffset] = FloatParamBuffer0[ReadOffset];
+#endif
+
+#if NUM_FLOAT_BUFFER > 1
+	FloatParamBuffer1[WriteOffset] = FloatParamBuffer1[ReadOffset];
+#endif
+}
+
+#endif

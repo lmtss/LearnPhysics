@@ -10,6 +10,8 @@
 #include "GlobalShader.h"
 #include "GPUSort.h"
 
+#include "ShaderCompilerCore.h"	//CFLAG_AllowTypedUAVLoads
+
 #include "YQStreamCompact.h"
 
 class FYQGenerateDistanceConstraintsCS : public FGlobalShader {
@@ -968,4 +970,147 @@ int GenerateBendingConstraintsFromMesh(
 	);
 
 	return NumUniqueConstraints;
+}
+
+
+namespace MoveConstraintsPermutation
+{
+	class FNumUintBufferDim : SHADER_PERMUTATION_INT("NUM_UINT_BUFFER", 5);
+	class FNumHalfBufferDim : SHADER_PERMUTATION_INT("NUM_HALF_BUFFER", 3);
+	class FNumFloatBufferDim : SHADER_PERMUTATION_INT("NUM_FLOAT_BUFFER", 3);
+}
+
+class FYQMoveConstraintsBufferCS : public FGlobalShader
+{
+public:
+	DECLARE_SHADER_TYPE(FYQMoveConstraintsBufferCS, Global);
+	SHADER_USE_PARAMETER_STRUCT(FYQMoveConstraintsBufferCS, FGlobalShader);
+
+	static constexpr uint32 ThreadGroupSize = 64;
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_UAV(RWBuffer<uint>, UintParamBuffer0)
+		SHADER_PARAMETER_UAV(RWBuffer<uint>, UintParamBuffer1)
+		SHADER_PARAMETER_UAV(RWBuffer<uint>, UintParamBuffer2)
+		SHADER_PARAMETER_UAV(RWBuffer<uint>, UintParamBuffer3)
+		SHADER_PARAMETER_UAV(RWBuffer<half>, HalfParamBuffer0)
+		SHADER_PARAMETER_UAV(RWBuffer<half>, HalfParamBuffer1)
+		SHADER_PARAMETER_UAV(RWBuffer<float>, FloatParamBuffer0)
+		SHADER_PARAMETER_UAV(RWBuffer<float>, FloatParamBuffer1)
+		SHADER_PARAMETER(uint32, SrcIndex)
+		SHADER_PARAMETER(uint32, DestIndex)
+		SHADER_PARAMETER(uint32, NumConstraints)
+		END_SHADER_PARAMETER_STRUCT()
+
+
+		using FPermutationDomain = TShaderPermutationDomain<
+				MoveConstraintsPermutation::FNumUintBufferDim
+				, MoveConstraintsPermutation::FNumHalfBufferDim
+				, MoveConstraintsPermutation::FNumFloatBufferDim
+			>;
+
+public:
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::ES3_1);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("MOVE_CONSTRAINTS_BUFFER"), 1);
+		OutEnvironment.SetDefine(TEXT("THREAD_COUNT"), ThreadGroupSize);
+		OutEnvironment.CompilerFlags.Add(CFLAG_AllowTypedUAVLoads);
+
+	}
+
+};
+
+IMPLEMENT_SHADER_TYPE(, FYQMoveConstraintsBufferCS, TEXT("/YQLearnPhysics/ConstraintsGenerate.usf"), TEXT("MainCS"), SF_Compute);
+
+void MoveConstraintsBuffer(
+	FRHICommandList& RHICmdList
+	, FRHIUnorderedAccessView** BufferList
+	, EPixelFormat* FormatList
+	, uint32 NumBuffer
+)
+{
+	SCOPED_DRAW_EVENT(RHICmdList, MoveConstraintsBuffer);
+
+
+}
+
+
+void MoveConstraintsBuffer(
+	FRHICommandList& RHICmdList
+	, FUnorderedAccessViewRHIRef UintParamBuffer0
+	, FUnorderedAccessViewRHIRef UintParamBuffer1
+	, FUnorderedAccessViewRHIRef FloatParamBuffer
+	, uint32 SrcIndex
+	, uint32 DestIndex
+	, uint32 NumConstraints
+)
+{
+	SCOPED_DRAW_EVENT(RHICmdList, MoveConstraintsBuffer);
+
+	FYQMoveConstraintsBufferCS::FPermutationDomain PermutationVector;
+	PermutationVector.Set<MoveConstraintsPermutation::FNumUintBufferDim>(2);
+	PermutationVector.Set<MoveConstraintsPermutation::FNumFloatBufferDim>(1);
+	PermutationVector.Set<MoveConstraintsPermutation::FNumHalfBufferDim>(0);
+
+	TShaderMapRef<FYQMoveConstraintsBufferCS> CS(GetGlobalShaderMap(GMaxRHIFeatureLevel), PermutationVector);
+	RHICmdList.SetComputeShader(CS.GetComputeShader());
+
+	uint32 NumThreadGroups = FMath::DivideAndRoundUp(NumConstraints, FYQMoveConstraintsBufferCS::ThreadGroupSize);
+
+	FYQMoveConstraintsBufferCS::FParameters PassParameters;
+	PassParameters.UintParamBuffer0 = UintParamBuffer0;
+	PassParameters.UintParamBuffer1 = UintParamBuffer1;
+	PassParameters.FloatParamBuffer0 = FloatParamBuffer;
+	PassParameters.DestIndex = DestIndex;
+	PassParameters.SrcIndex = SrcIndex;
+	PassParameters.NumConstraints = NumConstraints;
+
+	SetShaderParameters(RHICmdList, CS, CS.GetComputeShader(), PassParameters);
+	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
+	UnsetShaderUAVs(RHICmdList, CS, CS.GetComputeShader());
+}
+
+void MoveConstraintsBuffer(
+	FRHICommandList& RHICmdList
+	, FUnorderedAccessViewRHIRef UintParamBuffer0
+	, FUnorderedAccessViewRHIRef UintParamBuffer1
+	, FUnorderedAccessViewRHIRef UintParamBuffer2
+	, FUnorderedAccessViewRHIRef UintParamBuffer3
+	, FUnorderedAccessViewRHIRef HalfParamBuffer
+	, uint32 SrcIndex
+	, uint32 DestIndex
+	, uint32 NumConstraints
+)
+{
+	SCOPED_DRAW_EVENT(RHICmdList, MoveConstraintsBuffer);
+
+	FYQMoveConstraintsBufferCS::FPermutationDomain PermutationVector;
+	PermutationVector.Set<MoveConstraintsPermutation::FNumUintBufferDim>(4);
+	PermutationVector.Set<MoveConstraintsPermutation::FNumFloatBufferDim>(0);
+	PermutationVector.Set<MoveConstraintsPermutation::FNumHalfBufferDim>(1);
+
+	TShaderMapRef<FYQMoveConstraintsBufferCS> CS(GetGlobalShaderMap(GMaxRHIFeatureLevel), PermutationVector);
+	RHICmdList.SetComputeShader(CS.GetComputeShader());
+
+	uint32 NumThreadGroups = FMath::DivideAndRoundUp(NumConstraints, FYQMoveConstraintsBufferCS::ThreadGroupSize);
+
+	FYQMoveConstraintsBufferCS::FParameters PassParameters;
+	PassParameters.UintParamBuffer0 = UintParamBuffer0;
+	PassParameters.UintParamBuffer1 = UintParamBuffer1;
+	PassParameters.UintParamBuffer2 = UintParamBuffer2;
+	PassParameters.UintParamBuffer3 = UintParamBuffer3;
+	PassParameters.HalfParamBuffer0 = HalfParamBuffer;
+	PassParameters.DestIndex = DestIndex;
+	PassParameters.SrcIndex = SrcIndex;
+	PassParameters.NumConstraints = NumConstraints;
+
+	SetShaderParameters(RHICmdList, CS, CS.GetComputeShader(), PassParameters);
+	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
+	UnsetShaderUAVs(RHICmdList, CS, CS.GetComputeShader());
 }

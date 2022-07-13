@@ -64,3 +64,34 @@ int GenerateBendingConstraintsFromMesh(
     , uint32 NumTriangles
     , uint32 OffsetParticles
 );
+
+
+
+void MoveConstraintsBuffer(
+    FRHICommandList& RHICmdList
+    , FRHIUnorderedAccessView** BufferList
+    , EPixelFormat* FormatList
+    , uint32 NumBuffer
+);
+
+void MoveConstraintsBuffer(
+    FRHICommandList& RHICmdList
+    , FUnorderedAccessViewRHIRef UintParamBuffer0
+    , FUnorderedAccessViewRHIRef UintParamBuffer1
+    , FUnorderedAccessViewRHIRef FloatParamBuffer
+    , uint32 SrcIndex
+    , uint32 DestIndex
+    , uint32 NumConstraints
+);
+
+void MoveConstraintsBuffer(
+    FRHICommandList& RHICmdList
+    , FUnorderedAccessViewRHIRef UintParamBuffer0
+    , FUnorderedAccessViewRHIRef UintParamBuffer1
+    , FUnorderedAccessViewRHIRef UintParamBuffer2
+    , FUnorderedAccessViewRHIRef UintParamBuffer3
+    , FUnorderedAccessViewRHIRef HalfParamBuffer
+    , uint32 SrcIndex
+    , uint32 DestIndex
+    , uint32 NumConstraints
+);

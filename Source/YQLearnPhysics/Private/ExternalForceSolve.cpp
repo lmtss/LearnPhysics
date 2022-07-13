@@ -3,9 +3,7 @@
 
 namespace ExternalForcePermutation
 {
-	// Shared permutation dimensions between deferred and mobile renderer.
 	class FFixedByColorDim : SHADER_PERMUTATION_BOOL("USE_FIXED_BY_COLOR");
-
 }
 
 class FYQSolveExternalForceCS : public FGlobalShader
