@@ -3,7 +3,7 @@
 
 namespace ExternalForcePermutation
 {
-	class FFixedByColorDim : SHADER_PERMUTATION_BOOL("USE_FIXED_BY_COLOR");
+	class FUseSimpleDirectionalWindDim : SHADER_PERMUTATION_BOOL("USE_SIMPLE_DIRECTIONAL_WIND");
 }
 
 class FYQSolveExternalForceCS : public FGlobalShader
@@ -16,6 +16,7 @@ public:
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER_SRV(Buffer<float4>, InputPositionBuffer)
+		SHADER_PARAMETER_SRV(Buffer<half4>, NormalBuffer)
 		SHADER_PARAMETER_UAV(RWBuffer<float4>, OutputPositionBuffer)
 		SHADER_PARAMETER_UAV(RWBuffer<half4>, VelocityBuffer)
 		SHADER_PARAMETER_SRV(Buffer<uint>, MaskBuffer)
@@ -25,7 +26,7 @@ public:
 		SHADER_PARAMETER(uint32, NumParticles)
 		END_SHADER_PARAMETER_STRUCT()
 
-		using FPermutationDomain = TShaderPermutationDomain<ExternalForcePermutation::FFixedByColorDim>;
+		using FPermutationDomain = TShaderPermutationDomain<ExternalForcePermutation::FUseSimpleDirectionalWindDim>;
 
 public:
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
@@ -63,7 +64,7 @@ void UpdateExternalForce(
 	SCOPED_DRAW_EVENT(RHICmdList, UpdateExternalForce);
 
 	FYQSolveExternalForceCS::FPermutationDomain ExternalForcePermutationVector;
-	ExternalForcePermutationVector.Set<ExternalForcePermutation::FFixedByColorDim>(false);
+	ExternalForcePermutationVector.Set<ExternalForcePermutation::FUseSimpleDirectionalWindDim>(false);
 
 	TShaderMapRef<FYQSolveExternalForceCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel), ExternalForcePermutationVector);
 	RHICmdList.SetComputeShader(ComputeShader.GetComputeShader());
@@ -77,6 +78,49 @@ void UpdateExternalForce(
 	PassParameters.VelocityBuffer = VelocityBuffer;
 	PassParameters.ExternalForceParams = FVector4f(9.8 * 100 * GravityScale, DeltaTime, 0.0, 0.0);
 	PassParameters.WindParams = FVector4f(0.0, 1.0, 0.0, 0.0);
+	PassParameters.NumParticles = NumParticles;
+	PassParameters.OffsetParticles = OffsetParticles;
+
+	SetShaderParameters(RHICmdList, ComputeShader, ComputeShader.GetComputeShader(), PassParameters);
+	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
+	UnsetShaderUAVs(RHICmdList, ComputeShader, ComputeShader.GetComputeShader());
+}
+
+void UpdateExternalForce(
+	FRHICommandList& RHICmdList
+	, FShaderResourceViewRHIRef  InputPosition
+	, FShaderResourceViewRHIRef NormalBuffer
+	, FUnorderedAccessViewRHIRef OutputPosition
+	, FShaderResourceViewRHIRef MaskBuffer
+	, FUnorderedAccessViewRHIRef VelocityBuffer
+	, FVector3f DirectionalWindDirection
+	, float DirectionalWindSpeed
+	, float GravityScale
+	, uint32 OffsetParticles
+	, uint32 NumParticles
+	, float DeltaTime
+)
+{
+	check(IsInRenderingThread());
+
+	SCOPED_DRAW_EVENT(RHICmdList, UpdateExternalForceWithDirectionalWind);
+
+	FYQSolveExternalForceCS::FPermutationDomain ExternalForcePermutationVector;
+	ExternalForcePermutationVector.Set<ExternalForcePermutation::FUseSimpleDirectionalWindDim>(true);
+
+	TShaderMapRef<FYQSolveExternalForceCS> ComputeShader(GetGlobalShaderMap(GMaxRHIFeatureLevel), ExternalForcePermutationVector);
+	RHICmdList.SetComputeShader(ComputeShader.GetComputeShader());
+
+	const uint32 NumThreadGroups = FMath::DivideAndRoundUp(NumParticles, FYQSolveExternalForceCS::ThreadGroupSize);
+
+	FYQSolveExternalForceCS::FParameters PassParameters;
+	PassParameters.InputPositionBuffer = InputPosition;
+	PassParameters.OutputPositionBuffer = OutputPosition;
+	PassParameters.MaskBuffer = MaskBuffer;
+	PassParameters.VelocityBuffer = VelocityBuffer;
+	PassParameters.NormalBuffer = NormalBuffer;
+	PassParameters.ExternalForceParams = FVector4f(9.8 * 100 * GravityScale, DeltaTime, 0.0, 0.0);
+	PassParameters.WindParams = FVector4f(DirectionalWindDirection, DirectionalWindSpeed);
 	PassParameters.NumParticles = NumParticles;
 	PassParameters.OffsetParticles = OffsetParticles;
 

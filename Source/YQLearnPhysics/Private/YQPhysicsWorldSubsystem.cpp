@@ -165,6 +165,8 @@ void UYQPhysicsWorldSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 #if WITH_EDITORONLY_DATA
 	FEditorDelegates::EndPIE.AddUObject(this, &UYQPhysicsWorldSubsystem::OnEndPIE);
 #endif
+
+	ViewExtension = FSceneViewExtensions::NewExtension<FYQPhysicsViewExtension>(GetWorld(), GPUPhysicsSimulator, GPUPhysicsScene);
 }
 
 void UYQPhysicsWorldSubsystem::Deinitialize()
@@ -227,8 +229,22 @@ TStatId UYQPhysicsWorldSubsystem::GetStatId() const
 void UYQPhysicsWorldSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-	if(!bPause)
-		GPUPhysicsSimulator->Tick(DeltaTime);
+	/*if(!bPause)
+		GPUPhysicsSimulator->Tick(DeltaTime);*/
+
+	if (!bPause)
+	{
+		FScene* Scene = static_cast<FScene*>(GetWorld()->Scene);
+		FYQPhysicsScene* PhysicsScene = GPUPhysicsScene;
+		FYQPhysicsSimulator* Simulator = GPUPhysicsSimulator;
+		ENQUEUE_RENDER_COMMAND(FYQPhysicsSceneProxy_Initialize)(
+			[=](FRHICommandListImmediate& RHICmdList)
+		{
+			PhysicsScene->Tick(RHICmdList);
+			Simulator->SetScene(Scene);
+			Simulator->Tick_RenderThread(RHICmdList, 0.03);
+		});
+	}
 }
 
 void UYQPhysicsWorldSubsystem::BeginDestroy() 
@@ -236,4 +252,18 @@ void UYQPhysicsWorldSubsystem::BeginDestroy()
 	UE_LOG(LogTemp, Log, TEXT("UYQPhysicsWorldSubsystem::BeginDestroy"))
 
 	Super::BeginDestroy();
+}
+
+void UYQPhysicsWorldSubsystem::Pause()
+{
+	bPause = true;
+
+	ViewExtension->DisableSimulate();
+}
+
+void UYQPhysicsWorldSubsystem::Continue()
+{
+	bPause = false;
+
+	ViewExtension->EnableSimulate();
 }

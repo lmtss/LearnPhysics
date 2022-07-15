@@ -156,6 +156,8 @@ void FYQPhysicsScene::Tick(FRHICommandList& RHICmdList)
 	// 	, 32
 	// );
 	
+	SCOPED_DRAW_EVENT(RHICmdList, YQPhysicsScene_Tick);
+
 	// Á÷Ñ¹Ëõ
 
 	

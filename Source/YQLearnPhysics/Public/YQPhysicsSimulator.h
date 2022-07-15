@@ -15,8 +15,8 @@
 
 #include "UObject/ObjectMacros.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "Renderer/Private/ScenePrivate.h"
 
-#include "YQPhysicsViewExtension.h"
 
 #include "YQPhysicsSimulator.generated.h"
 
@@ -50,15 +50,19 @@ public:
 	~FYQPhysicsSimulator();
 
 	void SetPhysicsScene(FYQPhysicsScene* InScene);
+	void SetScene(FScene* InScene);
 
 	void Tick(float DeltaSeconds);
 
+	void Tick_RenderThread(FRHICommandList& RHICmdList, float DeltaSeconds);
+
 private:
 
-	void Tick_RenderThread(FRHICommandList& RHICmdList, float DeltaSeconds);
-	
+	void Substep(FRHICommandList& RHICmdList, uint32 IterSubStep, uint32 NumSubSteps, float SubstepTime);
 
-	FYQPhysicsScene* Scene = nullptr;
+	void SolveExternalForce(FRHICommandList& RHICmdList, float DeltaTime);
 
-	TSharedPtr<FYQPhysicsViewExtension, ESPMode::ThreadSafe> ViewExtension;
+	FYQPhysicsScene* PhysicsScene = nullptr;
+	FScene* Scene;
+
 };

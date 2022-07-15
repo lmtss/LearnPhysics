@@ -18,6 +18,21 @@ void UpdateExternalForce(
 	, float DeltaTime
 );
 
+void UpdateExternalForce(
+	FRHICommandList& RHICmdList
+	, FShaderResourceViewRHIRef  InputPosition
+	, FShaderResourceViewRHIRef NormalBuffer
+	, FUnorderedAccessViewRHIRef OutputPosition
+	, FShaderResourceViewRHIRef MaskBuffer
+	, FUnorderedAccessViewRHIRef VelocityBuffer
+	, FVector3f DirectionalWindDirection
+	, float DirectionalWindSpeed
+	, float GravityScale
+	, uint32 OffsetParticles
+	, uint32 NumParticles
+	, float DeltaTime
+);
+
 
 void UpdateFixedParticlesTransform(
 	FRHICommandList& RHICmdList

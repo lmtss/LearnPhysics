@@ -16,13 +16,22 @@ int UYQPhysicsBlueprintLibrary::AddStaticMeshActorToPhysicsScene(UStaticMeshComp
 
 void FYQPhysicsSimulator::SetPhysicsScene(FYQPhysicsScene* InScene)
 {
+	PhysicsScene = InScene;
+}
+
+
+void FYQPhysicsSimulator::SetScene(FScene* InScene)
+{
 	Scene = InScene;
 }
 
 FYQPhysicsSimulator::FYQPhysicsSimulator()
+	: Scene(nullptr)
 {
-	ViewExtension = FSceneViewExtensions::NewExtension<FYQPhysicsViewExtension>();
+
 }
+
+
 
 FYQPhysicsSimulator::~FYQPhysicsSimulator()
 {
@@ -52,9 +61,9 @@ void FYQPhysicsSimulator::Tick(float DeltaSeconds)
 
 	DeltaSeconds = FMath::Clamp(DeltaSeconds, 0.0, 0.05);
 
-	if(Scene != nullptr)
+	/*if(Scene != nullptr)
 	{
-		FYQPhysicsScene* PhysicsScene = Scene;
+		FYQPhysicsScene* PhysicsScene = PhysicsScene;
 		FYQPhysicsSimulator* Simulator = this;
 		ENQUEUE_RENDER_COMMAND(FYQPhysicsSceneProxy_Initialize)(
 			[=](FRHICommandListImmediate& RHICmdList) 
@@ -63,19 +72,95 @@ void FYQPhysicsSimulator::Tick(float DeltaSeconds)
 			Simulator->Tick_RenderThread(RHICmdList, 0.03);
 		});
 		
+	}*/
+
+}
+
+void FYQPhysicsSimulator::Substep(FRHICommandList& RHICmdList, uint32 IterSubStep, uint32 NumSubSteps, float SubstepTime)
+{
+	SCOPED_DRAW_EVENT(RHICmdList, YQPhysicsSimulator_Substep);
+
+
+}
+
+void FYQPhysicsSimulator::SolveExternalForce(FRHICommandList& RHICmdList, float DeltaTime)
+{
+	SCOPED_DRAW_EVENT(RHICmdList, SolveExternalForce);
+
+	bool bEnableWind = false;
+	FVector DirectionalWindDirection;
+	float DirectionalWindSpeed;
+	float DirectionalWindMinGustAmt;
+	float DirectionalWindMaxGustAmt;
+
+	if (Scene)
+	{
+		bEnableWind = true;
+		Scene->GetDirectionalWindParameters(DirectionalWindDirection, DirectionalWindSpeed, DirectionalWindMinGustAmt, DirectionalWindMaxGustAmt);
 	}
 
+	FRWBuffer& NormalBuffer = PhysicsScene->GetNormalBuffer();
+	FRWBuffer& VertexMaskBuffer = PhysicsScene->GetVertexMaskBuffer();
+	FRWBuffer& VelocityBuffer = PhysicsScene->GetVelocityBuffer();
+
+	FRWBuffer& PredictPositionBuffer = PhysicsScene->GetPredictPositionBuffer();
+	FRWBuffer& OrignalPositionBuffer = PhysicsScene->GetOrignalPositionBuffer();
+
+	TArray<FYQPhysicsProxy*>& ProxyList = PhysicsScene->GetProxyListRenderThread();
+
+	for (FYQPhysicsProxy* Proxy : ProxyList)
+	{
+		if (bEnableWind)
+		{
+			UpdateExternalForce(
+				RHICmdList
+				, PhysicsScene->GetPositionBuffer().SRV
+				, NormalBuffer.SRV
+				, PhysicsScene->GetOutputPositionBuffer().UAV
+				, VertexMaskBuffer.SRV
+				, VelocityBuffer.UAV
+				, FVector3f(DirectionalWindDirection)
+				, DirectionalWindSpeed
+				, Proxy->bEnableGravity ? 1.0 : 0.0
+				, Proxy->BufferIndexOffset
+				, Proxy->NumVertices
+				, DeltaTime
+			);
+		}
+		else
+		{
+			UpdateExternalForce(
+				RHICmdList
+				, PhysicsScene->GetPositionBuffer().SRV
+				, NormalBuffer.SRV
+				, PhysicsScene->GetOutputPositionBuffer().UAV
+				, VertexMaskBuffer.SRV
+				, VelocityBuffer.UAV
+				, Proxy->bEnableGravity ? 1.0 : 0.0
+				, Proxy->BufferIndexOffset
+				, Proxy->NumVertices
+				, DeltaTime
+			);
+		}
+		
+	}
 }
 
 void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float DeltaSeconds)
 {
+	SCOPED_DRAW_EVENT(RHICmdList, YQPhysicsSimulator_Tick);
 	//UE_LOG(LogTemp, Log, TEXT("FYQPhysicsSimulator::Tick_RenderThread %f"), DeltaSeconds)
 
 	int NumSubSteps = 3;
 	float StepTime = DeltaSeconds;
 	float SubstepTime = StepTime / NumSubSteps;
 
-	FYQPhysicsScene* PhysicsScene = Scene;
+	
+
+	
+	
+
+	//FYQPhysicsScene* PhysicsScene = Scene;
 
 	FRWBuffer& NormalBuffer = PhysicsScene->GetNormalBuffer();
 	FRWBuffer& VertexMaskBuffer = PhysicsScene->GetVertexMaskBuffer();
@@ -131,24 +216,6 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 	{
 		CopyPositionForCollision(RHICmdList, PhysicsScene->GetPositionBuffer().SRV, OrignalPositionBuffer.UAV, NumParticles);
 
-		for (FYQPhysicsProxy* Proxy : ProxyList)
-		{
-			UpdateExternalForce(
-				RHICmdList
-				, PhysicsScene->GetPositionBuffer().SRV
-				, NormalBuffer.SRV
-				, PhysicsScene->GetOutputPositionBuffer().UAV
-				, VertexMaskBuffer.SRV
-				, VelocityBuffer.UAV
-				, Proxy->bEnableGravity ? 1.0 : 0.0
-				, Proxy->BufferIndexOffset
-				, Proxy->NumVertices
-				, SubstepTime
-			);
-		}
-
-		PhysicsScene->SwapBuffer();
-
 		for (int i = 0; i < ProxyList.Num(); i++)
 		{
 			FYQPhysicsProxy* Proxy = ProxyList[i];
@@ -163,8 +230,13 @@ void FYQPhysicsSimulator::Tick_RenderThread(FRHICommandList& RHICmdList, float D
 				, AccumulateDeltaPositionZBuffer.UAV
 				, Proxy->NumVertices
 				, Proxy->NumBufferElement
+				, Proxy->BufferIndexOffset
 			);
 		}
+
+		SolveExternalForce(RHICmdList, SubstepTime);
+
+		PhysicsScene->SwapBuffer();
 
 		CopyPositionForCollision(RHICmdList, PhysicsScene->GetPositionBuffer().SRV, PredictPositionBuffer.UAV, NumParticles);
 

@@ -15,6 +15,7 @@ void CalcNormalByCross(
 	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionZBuffer
 	, uint32 NumVertices
 	, uint32 NumTriangles
+	, uint32 OffsetParticles
 );
 
 void CalcNormalAndTangent(

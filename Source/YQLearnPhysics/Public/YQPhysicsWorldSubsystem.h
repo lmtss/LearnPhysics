@@ -6,6 +6,7 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "YQPhysicsScene.h"
 #include "YQPhysicsSimulator.h"
+#include "YQPhysicsViewExtension.h"
 
 #if WITH_EDITORONLY_DATA
 #include "Editor.h"
@@ -53,15 +54,18 @@ public:
 	// UObject implementation End
 
 	FYQPhysicsScene* GetGPUPhysicsScene();
-
-	void Pause()
+	FYQPhysicsSimulator* GetGPUSimulator()
 	{
-		bPause = true;
+		return GPUPhysicsSimulator;
 	}
 
-	void Continue()
+	void Pause();
+
+	void Continue();
+
+	bool IsPause()
 	{
-		bPause = false;
+		return bPause;
 	}
 
 private:
@@ -69,4 +73,6 @@ private:
 	FYQPhysicsSimulator* GPUPhysicsSimulator;
 
 	bool bPause;
+
+	TSharedPtr<FYQPhysicsViewExtension, ESPMode::ThreadSafe> ViewExtension;
 };

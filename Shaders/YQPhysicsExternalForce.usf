@@ -4,10 +4,13 @@
 
 #if SOLVE_EXTERNAL_FORCE
 Buffer<float4> InputPositionBuffer;
-
 RWBuffer<float4> OutputPositionBuffer;
 RWBuffer<half4> VelocityBuffer;
 Buffer<uint> MaskBuffer;
+
+#if USE_SIMPLE_DIRECTIONAL_WIND
+Buffer<half4> NormalBuffer;
+#endif
 
 float4 ExternalForceParams;
 
@@ -28,12 +31,15 @@ void MainCS(uint3 ThreadId : SV_DispatchThreadID)
 
     if (IsFixed == 0)
     {
-        //float3 Normal = NormalBuffer[ParticleID].xyz;
         float3 Velocity = VelocityBuffer[ParticleID].xyz;
         float g = ExternalForceParams.x;
         float DeltaTime = ExternalForceParams.y;
 
-        //Velocity += abs(dot(WindParams.xyz, Normal)) * WindParams.xyz * WindParams.w * DeltaTime;
+#if USE_SIMPLE_DIRECTIONAL_WIND
+        float3 Normal = NormalBuffer[ParticleID].xyz;
+        Velocity += abs(dot(WindParams.xyz, Normal)) * WindParams.xyz * WindParams.w * DeltaTime;
+#endif
+        
 
         float3 Position = InputPositionBuffer[ParticleID].rgb;
         OutputPositionBuffer[ParticleID] = float4(Position + Velocity * DeltaTime, 0.0);
@@ -43,8 +49,6 @@ void MainCS(uint3 ThreadId : SV_DispatchThreadID)
         
         Velocity = clamp(Velocity, -MAX_SPEED_LIMIT, MAX_SPEED_LIMIT);
 
-
-        //OutputPositionBuffer[ParticleID] = float4(Position, 0.0);
         VelocityBuffer[ParticleID] = half4(Velocity, 1.0);
     }
     else

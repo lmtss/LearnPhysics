@@ -17,6 +17,7 @@ public:
 		SHADER_PARAMETER_UAV(RWBuffer<int>, AccumulateDeltaPositionYBuffer)
 		SHADER_PARAMETER_UAV(RWBuffer<int>, AccumulateDeltaPositionZBuffer)
 		SHADER_PARAMETER(uint32, NumTriangles)
+		SHADER_PARAMETER(uint32, OffsetParticles)
 		END_SHADER_PARAMETER_STRUCT()
 
 
@@ -53,6 +54,7 @@ public:
 		SHADER_PARAMETER_UAV(RWBuffer<int>, AccumulateDeltaPositionYBuffer)
 		SHADER_PARAMETER_UAV(RWBuffer<int>, AccumulateDeltaPositionZBuffer)
 		SHADER_PARAMETER(uint32, NumVertices)
+		SHADER_PARAMETER(uint32, OffsetParticles)
 		END_SHADER_PARAMETER_STRUCT()
 
 
@@ -82,6 +84,7 @@ void CalcNormalByCrossAndAtomic(
 	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionYBuffer
 	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionZBuffer
 	, uint32 NumTriangles
+	, uint32 OffsetParticles
 )
 {
 	SCOPED_DRAW_EVENT(RHICmdList, CalcNormalByCrossAndAtomic);
@@ -98,6 +101,7 @@ void CalcNormalByCrossAndAtomic(
 	PassParameters.AccumulateDeltaPositionYBuffer = AccumulateDeltaPositionYBuffer;
 	PassParameters.AccumulateDeltaPositionZBuffer = AccumulateDeltaPositionZBuffer;
 	PassParameters.NumTriangles = NumTriangles;
+	PassParameters.OffsetParticles = OffsetParticles;
 
 	SetShaderParameters(RHICmdList, ComputeShader, ComputeShader.GetComputeShader(), PassParameters);
 	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
@@ -111,6 +115,7 @@ void ResolveDeltaNormal(
 	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionYBuffer
 	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionZBuffer
 	, uint32 NumVertices
+	, uint32 OffsetParticles
 )
 {
 	SCOPED_DRAW_EVENT(RHICmdList, ResolveDeltaNormal);
@@ -126,6 +131,7 @@ void ResolveDeltaNormal(
 	PassParameters.AccumulateDeltaPositionYBuffer = AccumulateDeltaPositionYBuffer;
 	PassParameters.AccumulateDeltaPositionZBuffer = AccumulateDeltaPositionZBuffer;
 	PassParameters.NumVertices = NumVertices;
+	PassParameters.OffsetParticles = OffsetParticles;
 
 	SetShaderParameters(RHICmdList, ComputeShader, ComputeShader.GetComputeShader(), PassParameters);
 	RHICmdList.DispatchComputeShader(NumThreadGroups, 1, 1);
@@ -142,11 +148,12 @@ void CalcNormalByCross(
 	, FUnorderedAccessViewRHIRef AccumulateDeltaPositionZBuffer
 	, uint32 NumVertices
 	, uint32 NumTriangles
+	, uint32 OffsetParticles
 )
 {
-	CalcNormalByCrossAndAtomic(RHICmdList, PositionBuffer, IndexBuffer, AccumulateDeltaPositionXBuffer, AccumulateDeltaPositionYBuffer, AccumulateDeltaPositionZBuffer, NumTriangles);
+	CalcNormalByCrossAndAtomic(RHICmdList, PositionBuffer, IndexBuffer, AccumulateDeltaPositionXBuffer, AccumulateDeltaPositionYBuffer, AccumulateDeltaPositionZBuffer, NumTriangles, OffsetParticles);
 
-	ResolveDeltaNormal(RHICmdList, OutputNormalBuffer, AccumulateDeltaPositionXBuffer, AccumulateDeltaPositionYBuffer, AccumulateDeltaPositionZBuffer, NumVertices);
+	ResolveDeltaNormal(RHICmdList, OutputNormalBuffer, AccumulateDeltaPositionXBuffer, AccumulateDeltaPositionYBuffer, AccumulateDeltaPositionZBuffer, NumVertices, OffsetParticles);
 }
 
 

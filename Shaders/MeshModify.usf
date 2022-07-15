@@ -13,6 +13,7 @@ RWBuffer<int> AccumulateDeltaPositionYBuffer;
 RWBuffer<int> AccumulateDeltaPositionZBuffer;
 
 uint NumTriangles;
+uint OffsetParticles;
 
 [numthreads(THREAD_COUNT, 1, 1)]
 void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
@@ -25,9 +26,9 @@ void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_Dispatch
 	uint VertexID1 = IndexBuffer[TriangleID * 3 + 1];
 	uint VertexID2 = IndexBuffer[TriangleID * 3 + 2];
 
-	float3 Position0 = PositionBuffer[VertexID0].xyz;
-	float3 Position1 = PositionBuffer[VertexID1].xyz;
-	float3 Position2 = PositionBuffer[VertexID2].xyz;
+	float3 Position0 = PositionBuffer[VertexID0 + OffsetParticles].xyz;
+	float3 Position1 = PositionBuffer[VertexID1 + OffsetParticles].xyz;
+	float3 Position2 = PositionBuffer[VertexID2 + OffsetParticles].xyz;
 
 	float3 Normal = normalize(cross(Position1 - Position0, Position2 - Position0));
 
@@ -55,26 +56,27 @@ RWBuffer<int> AccumulateDeltaPositionYBuffer;
 RWBuffer<int> AccumulateDeltaPositionZBuffer;
 
 uint NumVertices;
+uint OffsetParticles;
 
 [numthreads(THREAD_COUNT, 1, 1)]
 void MainCS(uint3 GroupThreadId : SV_GroupThreadID, uint3 ThreadId : SV_DispatchThreadID)
 {
 	if (ThreadId.x >= NumVertices) return;
 
-	uint VertexID = ThreadId.x;
+	uint VertexID = ThreadId.x + OffsetParticles;
 
-	float DeltaNormalX = IntToFloatForAtomic(AccumulateDeltaPositionXBuffer[VertexID]);
-	float DeltaNormalY = IntToFloatForAtomic(AccumulateDeltaPositionYBuffer[VertexID]);
-	float DeltaNormalZ = IntToFloatForAtomic(AccumulateDeltaPositionZBuffer[VertexID]);
+	float DeltaNormalX = IntToFloatForAtomic(AccumulateDeltaPositionXBuffer[ThreadId.x]);
+	float DeltaNormalY = IntToFloatForAtomic(AccumulateDeltaPositionYBuffer[ThreadId.x]);
+	float DeltaNormalZ = IntToFloatForAtomic(AccumulateDeltaPositionZBuffer[ThreadId.x]);
 
 	float3 Normal = float3(DeltaNormalX, DeltaNormalY, DeltaNormalZ);
 	Normal = normalize(Normal);
 
 	OutputNormalBuffer[VertexID] = float4(Normal, 0.0);
 
-	AccumulateDeltaPositionXBuffer[VertexID] = 0;
-	AccumulateDeltaPositionYBuffer[VertexID] = 0;
-	AccumulateDeltaPositionZBuffer[VertexID] = 0;
+	AccumulateDeltaPositionXBuffer[ThreadId.x] = 0;
+	AccumulateDeltaPositionYBuffer[ThreadId.x] = 0;
+	AccumulateDeltaPositionZBuffer[ThreadId.x] = 0;
 }
 
 #endif
