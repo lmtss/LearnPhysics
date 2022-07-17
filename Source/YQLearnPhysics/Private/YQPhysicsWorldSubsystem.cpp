@@ -234,7 +234,13 @@ void UYQPhysicsWorldSubsystem::Tick(float DeltaTime)
 
 	if (!bPause)
 	{
-		FScene* Scene = static_cast<FScene*>(GetWorld()->Scene);
+		//FScene* Scene = static_cast<FScene*>(GetWorld()->Scene);
+		FScene* Scene = nullptr;
+		if (GetWorld()->Scene)
+		{
+			Scene = GetWorld()->Scene->GetRenderScene();
+		}
+		
 		FYQPhysicsScene* PhysicsScene = GPUPhysicsScene;
 		FYQPhysicsSimulator* Simulator = GPUPhysicsSimulator;
 		ENQUEUE_RENDER_COMMAND(FYQPhysicsSceneProxy_Initialize)(
