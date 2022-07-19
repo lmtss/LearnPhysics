@@ -1,0 +1,25 @@
+#include "/Engine/Private/Common.ush"
+
+#if VOXELIZE_MESH_SURFACE_VS
+
+void Main(
+    in uint VertexId : SV_VertexID
+    , in uint InstanceId : SV_InstanceID
+    , out float4 Position : SV_POSITION
+)
+{
+    Position = 0;
+}
+
+#endif
+
+#if VOXELIZE_MESH_SURFACE_PS
+
+void Main(
+    out float4 OutColor : SV_Target0
+)
+{
+    OutColor = float4(10.0, 0.0, 0.0, 0.0);
+}
+
+#endif
